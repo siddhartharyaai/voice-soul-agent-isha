@@ -27,14 +27,13 @@ interface WorkflowAction {
 }
 
 interface WorkflowPanelProps {
-  onActionTrigger: (actionId: string) => void;
-  onConfigureAction: (actionId: string) => void;
+  isOpen: boolean;
+  onToggle: () => void;
 }
 
-export const WorkflowPanel: React.FC<WorkflowPanelProps> = ({
-  onActionTrigger,
-  onConfigureAction
-}) => {
+export function WorkflowPanel({ isOpen, onToggle }: WorkflowPanelProps) {
+  const onActionTrigger = (actionId: string) => console.log('Action:', actionId);
+  const onConfigureAction = (actionId: string) => console.log('Configure:', actionId);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   const workflows: WorkflowAction[] = [

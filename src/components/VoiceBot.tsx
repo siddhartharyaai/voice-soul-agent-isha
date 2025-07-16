@@ -1,152 +1,98 @@
-import { useState, useEffect } from 'react';
-import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
-import { cn } from '@/lib/utils';
-
-type VoiceBotState = 'idle' | 'listening' | 'speaking' | 'processing';
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Mic, MicOff, MessageSquare, Volume2, VolumeX } from 'lucide-react';
+import { VoiceVisualization } from './VoiceVisualization';
+import { Message } from '@/hooks/useConversations';
 
 interface VoiceBotProps {
   botName: string;
-  state: VoiceBotState;
-  isVoiceMode: boolean;
-  onVoiceToggle: () => void;
-  onMicToggle: () => void;
-  isMuted: boolean;
+  messages: Message[];
+  onAddMessage: (message: Omit<Message, 'id' | 'timestamp'>) => Message;
+  onSaveConversation: (messages: Message[]) => void;
 }
 
-export const VoiceBot: React.FC<VoiceBotProps> = ({
-  botName,
-  state,
-  isVoiceMode,
-  onVoiceToggle,
-  onMicToggle,
-  isMuted
-}) => {
-  const [waveCount, setWaveCount] = useState(3);
+export function VoiceBot({ botName, messages, onAddMessage, onSaveConversation }: VoiceBotProps) {
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [inputMode, setInputMode] = useState<'voice' | 'text'>('voice');
 
-  useEffect(() => {
-    if (state === 'speaking') {
-      setWaveCount(5);
-    } else if (state === 'listening') {
-      setWaveCount(4);
-    } else {
-      setWaveCount(3);
-    }
-  }, [state]);
-
-  const getStateColor = () => {
-    switch (state) {
-      case 'speaking': return 'hsl(var(--speaking))';
-      case 'listening': return 'hsl(var(--listening))';
-      case 'processing': return 'hsl(var(--accent))';
-      default: return 'hsl(var(--primary))';
+  const handleVoiceToggle = () => {
+    setIsListening(!isListening);
+    if (!isListening) {
+      // Start listening
+      onAddMessage({
+        type: 'user',
+        content: 'Voice input activated',
+      });
     }
   };
 
-  const getAnimationClass = () => {
-    switch (state) {
-      case 'speaking': return 'animate-speaking-pulse';
-      case 'listening': return 'animate-listening-pulse';
-      default: return 'animate-voice-pulse';
-    }
+  const handleMuteToggle = () => {
+    setIsMuted(!isMuted);
   };
 
-  const renderWaves = () => {
-    return Array.from({ length: waveCount }, (_, i) => (
-      <div
-        key={i}
-        className={cn(
-          "absolute rounded-full border-2 opacity-20",
-          state === 'speaking' && "animate-speaking-pulse",
-          state === 'listening' && "animate-listening-pulse",
-          state === 'idle' && "animate-voice-pulse"
-        )}
-        style={{
-          width: `${120 + (i * 40)}%`,
-          height: `${120 + (i * 40)}%`,
-          borderColor: getStateColor(),
-          animationDelay: `${i * 0.2}s`,
-        }}
-      />
-    ));
+  const handleInputModeToggle = () => {
+    setInputMode(inputMode === 'voice' ? 'text' : 'voice');
   };
 
   return (
-    <div className="flex flex-col items-center space-y-6">
-      {/* Bot Avatar with Waves */}
-      <div className="relative flex items-center justify-center">
-        {/* Animated Waves */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          {renderWaves()}
-        </div>
-        
-        {/* Main Bot Circle */}
-        <div
-          className={cn(
-            "relative z-10 w-32 h-32 rounded-full flex items-center justify-center text-2xl font-bold transition-all duration-300 shadow-lg",
-            getAnimationClass()
-          )}
-          style={{
-            background: `linear-gradient(135deg, ${getStateColor()}, hsl(var(--accent)))`,
-            boxShadow: `0 0 40px ${getStateColor()}33`,
-          }}
-        >
-          <span className="text-white select-none">
-            {botName.charAt(0).toUpperCase()}
-          </span>
-        </div>
-      </div>
-
-      {/* Bot Name and State */}
-      <div className="text-center space-y-2">
-        <h2 className="text-2xl font-semibold">{botName}</h2>
-        <p className="text-sm text-muted-foreground capitalize">
-          {state === 'processing' ? 'Thinking...' : state}
-        </p>
-      </div>
-
-      {/* Voice Controls */}
-      <div className="flex items-center space-x-4">
-        <button
-          onClick={onVoiceToggle}
-          className={cn(
-            "p-3 rounded-full transition-all duration-200 hover:scale-105",
-            isMuted 
-              ? "bg-destructive/20 text-destructive hover:bg-destructive/30" 
-              : "bg-primary/20 text-primary hover:bg-primary/30"
-          )}
-        >
-          {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-        </button>
-
-        <button
-          onClick={onMicToggle}
-          className={cn(
-            "p-4 rounded-full transition-all duration-200 hover:scale-105 shadow-lg",
-            isVoiceMode
-              ? state === 'listening' 
-                ? "bg-listening text-black shadow-listening"
-                : "bg-primary text-primary-foreground shadow-voice"
-              : "bg-muted text-muted-foreground hover:bg-muted/80"
-          )}
-        >
-          {isVoiceMode && state !== 'idle' ? <Mic size={24} /> : <MicOff size={24} />}
-        </button>
-      </div>
-
-      {/* State Indicator */}
-      {state !== 'idle' && (
-        <div className="flex items-center space-x-2 text-sm">
-          <div 
-            className="w-2 h-2 rounded-full animate-pulse"
-            style={{ backgroundColor: getStateColor() }}
+    <Card className="h-full flex flex-col shadow-lg border-border/50">
+      <CardContent className="p-8 text-center space-y-6">
+        {/* Bot Avatar/Visualization */}
+        <div className="relative mx-auto">
+          <VoiceVisualization 
+            isActive={isListening || isSpeaking}
+            mode={isListening ? 'listening' : isSpeaking ? 'speaking' : 'idle'}
           />
-          <span className="text-muted-foreground">
-            {state === 'listening' && 'Listening...'}
-            {state === 'speaking' && 'Speaking...'}
-            {state === 'processing' && 'Processing...'}
-          </span>
         </div>
-      )}
-    </div>
+
+        {/* Bot Status */}
+        <div className="space-y-2">
+          <h2 className="text-2xl font-bold text-foreground">{botName}</h2>
+          <p className="text-muted-foreground">
+            {isListening ? 'Listening...' : isSpeaking ? 'Speaking...' : 'Ready to chat'}
+          </p>
+        </div>
+
+        {/* Voice Controls */}
+        <div className="flex justify-center gap-4">
+          <Button
+            variant={isMuted ? "destructive" : "outline"}
+            size="lg"
+            onClick={handleMuteToggle}
+            className="w-14 h-14 rounded-full"
+          >
+            {isMuted ? <VolumeX className="h-6 w-6" /> : <Volume2 className="h-6 w-6" />}
+          </Button>
+          
+          <Button
+            variant={isListening ? "default" : "outline"}
+            size="lg"
+            onClick={handleVoiceToggle}
+            className="w-16 h-16 rounded-full"
+          >
+            {isListening ? <Mic className="h-8 w-8" /> : <MicOff className="h-8 w-8" />}
+          </Button>
+          
+          <Button
+            variant={inputMode === 'text' ? "default" : "outline"}
+            size="lg"
+            onClick={handleInputModeToggle}
+            className="w-14 h-14 rounded-full"
+          >
+            <MessageSquare className="h-6 w-6" />
+          </Button>
+        </div>
+
+        {/* Status Indicators */}
+        <div className="flex justify-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${isListening ? 'bg-primary animate-pulse' : 'bg-muted'}`} />
+          <div className={`w-2 h-2 rounded-full ${isSpeaking ? 'bg-accent animate-pulse' : 'bg-muted'}`} />
+          <div className={`w-2 h-2 rounded-full ${inputMode === 'text' ? 'bg-secondary animate-pulse' : 'bg-muted'}`} />
+        </div>
+      </CardContent>
+    </Card>
   );
-};
+}

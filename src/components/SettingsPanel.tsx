@@ -1,432 +1,256 @@
-import { useState } from 'react';
-import { 
-  User, 
-  Mic, 
-  Volume2, 
-  Brain, 
-  Palette,
-  Server,
-  Plus,
-  Settings as SettingsIcon,
-  Save,
-  RotateCcw
-} from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
-import { toast } from '@/hooks/use-toast';
-
-interface BotSettings {
-  name: string;
-  personality: string;
-  voice: string;
-  voiceSpeed: number;
-  voiceVolume: number;
-  model: string;
-  autoSpeak: boolean;
-  wakeWord: string;
-}
-
-interface MCPServer {
-  id: string;
-  name: string;
-  url: string;
-  apiKey?: string;
-  enabled: boolean;
-  description: string;
-}
+import { Switch } from '@/components/ui/switch';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Settings, Trash2, Plus } from 'lucide-react';
+import { Bot } from '@/hooks/useBots';
+import { useToast } from '@/hooks/use-toast';
 
 interface SettingsPanelProps {
-  settings: BotSettings;
-  mcpServers: MCPServer[];
-  onSettingsChange: (settings: BotSettings) => void;
-  onMCPServerAdd: (server: Omit<MCPServer, 'id'>) => void;
-  onMCPServerUpdate: (serverId: string, server: Partial<MCPServer>) => void;
-  onMCPServerDelete: (serverId: string) => void;
+  isOpen: boolean;
+  onToggle: () => void;
+  activeBot: Bot | null;
+  onUpdateBot: (botId: string, updates: Partial<Bot>) => Promise<Bot>;
 }
 
-export const SettingsPanel: React.FC<SettingsPanelProps> = ({
-  settings,
-  mcpServers,
-  onSettingsChange,
-  onMCPServerAdd,
-  onMCPServerUpdate,
-  onMCPServerDelete
-}) => {
-  const [localSettings, setLocalSettings] = useState(settings);
-  const [newServer, setNewServer] = useState({
-    name: '',
-    url: '',
-    apiKey: '',
-    description: '',
-    enabled: true
-  });
-  const [showAddServer, setShowAddServer] = useState(false);
+export function SettingsPanel({ isOpen, onToggle, activeBot, onUpdateBot }: SettingsPanelProps) {
+  const [botName, setBotName] = useState('');
+  const [personality, setPersonality] = useState('');
+  const [voice, setVoice] = useState('');
+  const [model, setModel] = useState('');
+  const [wakeWord, setWakeWord] = useState('');
+  const [autoSpeak, setAutoSpeak] = useState(true);
+  const [mcpServers, setMcpServers] = useState([
+    { id: '1', name: 'Calendar', url: 'https://calendar-mcp.example.com', enabled: true },
+    { id: '2', name: 'Email', url: 'https://email-mcp.example.com', enabled: false },
+  ]);
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
 
-  const voices = [
-    { id: 'aura-2-thalia-en', name: 'Thalia (Deepgram)', description: 'Natural, friendly voice' },
-    { id: 'aura-2-luna-en', name: 'Luna (Deepgram)', description: 'Calm, professional voice' },
-    { id: 'aura-2-stella-en', name: 'Stella (Deepgram)', description: 'Energetic, expressive voice' }
-  ];
-
-  const models = [
-    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: 'Fast, efficient model' },
-    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Most capable model' },
-    { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash (Experimental)', description: 'Latest experimental model' }
-  ];
-
-  const handleSaveSettings = () => {
-    onSettingsChange(localSettings);
-    toast({
-      title: "Settings saved",
-      description: "Your preferences have been updated."
-    });
-  };
-
-  const handleResetSettings = () => {
-    setLocalSettings(settings);
-    toast({
-      title: "Settings reset",
-      description: "Settings have been restored to last saved state."
-    });
-  };
-
-  const handleAddMCPServer = () => {
-    if (!newServer.name || !newServer.url) {
-      toast({
-        title: "Error",
-        description: "Please fill in all required fields.",
-        variant: "destructive"
-      });
-      return;
+  // Update form when activeBot changes
+  useEffect(() => {
+    if (activeBot) {
+      setBotName(activeBot.name);
+      setPersonality(activeBot.personality);
+      setVoice(activeBot.voice);
+      setModel(activeBot.model);
+      setWakeWord(activeBot.wake_word);
+      setAutoSpeak(activeBot.auto_speak);
     }
+  }, [activeBot]);
 
-    onMCPServerAdd(newServer);
-    setNewServer({ name: '', url: '', apiKey: '', description: '', enabled: true });
-    setShowAddServer(false);
-    toast({
-      title: "MCP Server added",
-      description: `${newServer.name} has been added successfully.`
-    });
+  const handleSaveSettings = async () => {
+    if (!activeBot) return;
+    
+    setSaving(true);
+    try {
+      await onUpdateBot(activeBot.id, {
+        name: botName,
+        personality,
+        voice,
+        model,
+        wake_word: wakeWord,
+        auto_speak: autoSpeak,
+      });
+      onToggle();
+    } catch (error) {
+      console.error('Error saving settings:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addMcpServer = () => {
+    const newServer = {
+      id: Date.now().toString(),
+      name: 'New Server',
+      url: 'https://api.example.com',
+      enabled: true,
+    };
+    setMcpServers([...mcpServers, newServer]);
+  };
+
+  const deleteMcpServer = (id: string) => {
+    setMcpServers(mcpServers.filter(server => server.id !== id));
+  };
+
+  const toggleMcpServer = (id: string, enabled: boolean) => {
+    setMcpServers(mcpServers.map(server => 
+      server.id === id ? { ...server, enabled } : server
+    ));
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border">
-        <div className="flex items-center space-x-2">
-          <SettingsIcon size={20} className="text-primary" />
-          <h3 className="font-semibold">Settings</h3>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Button variant="ghost" size="sm" onClick={handleResetSettings}>
-            <RotateCcw size={16} />
-          </Button>
-          <Button size="sm" onClick={handleSaveSettings}>
-            <Save size={16} />
-            Save
-          </Button>
-        </div>
-      </div>
-
-      {/* Settings Content */}
-      <div className="flex-1 overflow-y-auto">
-        <Tabs defaultValue="bot" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="bot">Bot</TabsTrigger>
-            <TabsTrigger value="voice">Voice</TabsTrigger>
-            <TabsTrigger value="model">Model</TabsTrigger>
-            <TabsTrigger value="mcp">MCP</TabsTrigger>
-          </TabsList>
-
-          {/* Bot Settings */}
-          <TabsContent value="bot" className="p-4 space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <User size={20} />
-                  <span>Bot Identity</span>
-                </CardTitle>
-                <CardDescription>
-                  Customize your AI assistant's name and personality
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="bot-name">Bot Name</Label>
-                  <Input
-                    id="bot-name"
-                    value={localSettings.name}
-                    onChange={(e) => setLocalSettings({ ...localSettings, name: e.target.value })}
-                    placeholder="Enter bot name..."
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="personality">Personality</Label>
-                  <Textarea
-                    id="personality"
-                    value={localSettings.personality}
-                    onChange={(e) => setLocalSettings({ ...localSettings, personality: e.target.value })}
-                    placeholder="Describe your bot's personality..."
-                    rows={4}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="wake-word">Wake Word</Label>
-                  <Input
-                    id="wake-word"
-                    value={localSettings.wakeWord}
-                    onChange={(e) => setLocalSettings({ ...localSettings, wakeWord: e.target.value })}
-                    placeholder="Hey Isha"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+    <Sheet open={isOpen} onOpenChange={onToggle}>
+      <SheetTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Settings className="w-4 h-4" />
+          <span className="hidden sm:inline ml-2">Settings</span>
+        </Button>
+      </SheetTrigger>
+      <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle>Bot Settings</SheetTitle>
+          <SheetDescription>
+            Customize your AI assistant's behavior and appearance
+          </SheetDescription>
+        </SheetHeader>
+        
+        <div className="space-y-6 py-6">
+          {/* Bot Identity */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Bot Identity</CardTitle>
+              <CardDescription>
+                Configure your bot's name and personality
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="bot-name">Bot Name</Label>
+                <Input
+                  id="bot-name"
+                  value={botName}
+                  onChange={(e) => setBotName(e.target.value)}
+                  placeholder="Enter bot name"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="personality">Personality</Label>
+                <Textarea
+                  id="personality"
+                  value={personality}
+                  onChange={(e) => setPersonality(e.target.value)}
+                  placeholder="Describe your bot's personality..."
+                  rows={3}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="wake-word">Wake Word</Label>
+                <Input
+                  id="wake-word"
+                  value={wakeWord}
+                  onChange={(e) => setWakeWord(e.target.value)}
+                  placeholder="Hey Isha"
+                />
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Voice Settings */}
-          <TabsContent value="voice" className="p-4 space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Mic size={20} />
-                  <span>Voice Configuration</span>
-                </CardTitle>
-                <CardDescription>
-                  Configure voice synthesis and audio settings
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <Label>Voice Model</Label>
-                  <Select 
-                    value={localSettings.voice} 
-                    onValueChange={(value) => setLocalSettings({ ...localSettings, voice: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select voice..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {voices.map((voice) => (
-                        <SelectItem key={voice.id} value={voice.id}>
-                          <div className="flex flex-col items-start">
-                            <span>{voice.name}</span>
-                            <span className="text-xs text-muted-foreground">{voice.description}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Voice Configuration</CardTitle>
+              <CardDescription>
+                Configure voice and speech settings
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="voice">Voice Model</Label>
+                <Select value={voice} onValueChange={setVoice}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select voice" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="aura-2-thalia-en">Thalia (Natural)</SelectItem>
+                    <SelectItem value="aura-2-luna-en">Luna (Professional)</SelectItem>
+                    <SelectItem value="aura-2-stella-en">Stella (Energetic)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="model">AI Model</Label>
+                <Select value={model} onValueChange={setModel}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash</SelectItem>
+                    <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro</SelectItem>
+                    <SelectItem value="gemini-2.0-flash-exp">Gemini 2.0 Flash (Experimental)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Switch
+                  checked={autoSpeak}
+                  onCheckedChange={setAutoSpeak}
+                />
+                <Label>Auto-speak responses</Label>
+              </div>
+            </CardContent>
+          </Card>
 
-                <div className="space-y-2">
-                  <Label>Voice Speed: {localSettings.voiceSpeed}x</Label>
-                  <Slider
-                    value={[localSettings.voiceSpeed]}
-                    onValueChange={([value]) => setLocalSettings({ ...localSettings, voiceSpeed: value })}
-                    min={0.5}
-                    max={2.0}
-                    step={0.1}
-                    className="w-full"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Voice Volume: {localSettings.voiceVolume}%</Label>
-                  <Slider
-                    value={[localSettings.voiceVolume]}
-                    onValueChange={([value]) => setLocalSettings({ ...localSettings, voiceVolume: value })}
-                    min={0}
-                    max={100}
-                    step={5}
-                    className="w-full"
-                  />
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    checked={localSettings.autoSpeak}
-                    onCheckedChange={(checked) => setLocalSettings({ ...localSettings, autoSpeak: checked })}
-                  />
-                  <Label>Auto-speak responses</Label>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Model Settings */}
-          <TabsContent value="model" className="p-4 space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Brain size={20} />
-                  <span>AI Model</span>
-                </CardTitle>
-                <CardDescription>
-                  Choose the AI model for conversations
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Language Model</Label>
-                  <Select 
-                    value={localSettings.model} 
-                    onValueChange={(value) => setLocalSettings({ ...localSettings, model: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select model..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {models.map((model) => (
-                        <SelectItem key={model.id} value={model.id}>
-                          <div className="flex flex-col items-start">
-                            <span>{model.name}</span>
-                            <span className="text-xs text-muted-foreground">{model.description}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* MCP Settings */}
-          <TabsContent value="mcp" className="p-4 space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Server size={20} />
-                  <span>MCP Servers</span>
-                </CardTitle>
-                <CardDescription>
-                  Manage Model Context Protocol servers for extended capabilities
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-medium">Connected Servers</h4>
-                  <Button 
-                    size="sm" 
-                    onClick={() => setShowAddServer(!showAddServer)}
-                  >
-                    <Plus size={16} />
-                    Add Server
-                  </Button>
-                </div>
-
-                {showAddServer && (
-                  <Card className="p-4 bg-muted/20">
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Server Name</Label>
-                          <Input
-                            value={newServer.name}
-                            onChange={(e) => setNewServer({ ...newServer, name: e.target.value })}
-                            placeholder="My Custom Server"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Server URL</Label>
-                          <Input
-                            value={newServer.url}
-                            onChange={(e) => setNewServer({ ...newServer, url: e.target.value })}
-                            placeholder="https://api.example.com"
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>API Key (Optional)</Label>
-                        <Input
-                          type="password"
-                          value={newServer.apiKey}
-                          onChange={(e) => setNewServer({ ...newServer, apiKey: e.target.value })}
-                          placeholder="Your API key..."
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Description</Label>
-                        <Input
-                          value={newServer.description}
-                          onChange={(e) => setNewServer({ ...newServer, description: e.target.value })}
-                          placeholder="What does this server do?"
-                        />
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Button onClick={handleAddMCPServer}>Add Server</Button>
-                        <Button variant="ghost" onClick={() => setShowAddServer(false)}>
-                          Cancel
-                        </Button>
+          {/* MCP Servers */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">MCP Servers</CardTitle>
+              <CardDescription>
+                Manage Model Context Protocol integrations
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium">Connected Servers</span>
+                <Button variant="outline" size="sm" onClick={addMcpServer}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add
+                </Button>
+              </div>
+              
+              <div className="space-y-2">
+                {mcpServers.map((server) => (
+                  <div key={server.id} className="flex items-center justify-between p-2 border rounded">
+                    <div className="flex items-center space-x-3">
+                      <Switch
+                        checked={server.enabled}
+                        onCheckedChange={(enabled) => toggleMcpServer(server.id, enabled)}
+                      />
+                      <div>
+                        <div className="text-sm font-medium">{server.name}</div>
+                        <div className="text-xs text-muted-foreground">{server.url}</div>
                       </div>
                     </div>
-                  </Card>
-                )}
-
-                <div className="space-y-3">
-                  {mcpServers.map((server) => (
-                    <Card key={server.id} className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2">
-                            <h5 className="font-medium">{server.name}</h5>
-                            <Badge variant={server.enabled ? "default" : "secondary"}>
-                              {server.enabled ? "Active" : "Inactive"}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {server.description}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {server.url}
-                          </p>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Switch
-                            checked={server.enabled}
-                            onCheckedChange={(checked) => 
-                              onMCPServerUpdate(server.id, { enabled: checked })
-                            }
-                          />
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onMCPServerDelete(server.id)}
-                            className="text-destructive hover:text-destructive"
-                          >
-                            Delete
-                          </Button>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-
-                  {mcpServers.length === 0 && (
-                    <div className="text-center py-8">
-                      <Server size={48} className="mx-auto text-muted-foreground/50 mb-4" />
-                      <p className="text-muted-foreground">No MCP servers configured</p>
-                      <p className="text-sm text-muted-foreground/70">
-                        Add servers to extend Isha's capabilities
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
-    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => deleteMcpServer(server.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Separator />
+          
+          <div className="flex gap-2">
+            <Button 
+              onClick={handleSaveSettings} 
+              className="flex-1" 
+              disabled={saving || !activeBot}
+            >
+              {saving ? 'Saving...' : 'Save Settings'}
+            </Button>
+            <Button variant="outline" onClick={onToggle}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
-};
+}

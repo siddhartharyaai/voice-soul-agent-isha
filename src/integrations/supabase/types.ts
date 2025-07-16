@@ -14,7 +14,157 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      bots: {
+        Row: {
+          auto_speak: boolean
+          created_at: string
+          id: string
+          model: string
+          name: string
+          personality: string | null
+          user_id: string
+          voice: string
+          wake_word: string
+        }
+        Insert: {
+          auto_speak?: boolean
+          created_at?: string
+          id?: string
+          model?: string
+          name?: string
+          personality?: string | null
+          user_id: string
+          voice?: string
+          wake_word?: string
+        }
+        Update: {
+          auto_speak?: boolean
+          created_at?: string
+          id?: string
+          model?: string
+          name?: string
+          personality?: string | null
+          user_id?: string
+          voice?: string
+          wake_word?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bots_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversations: {
+        Row: {
+          bot_id: string
+          id: string
+          messages: Json
+          timestamp: string
+          user_id: string
+        }
+        Insert: {
+          bot_id: string
+          id?: string
+          messages?: Json
+          timestamp?: string
+          user_id: string
+        }
+        Update: {
+          bot_id?: string
+          id?: string
+          messages?: Json
+          timestamp?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_bot_id_fkey"
+            columns: ["bot_id"]
+            isOneToOne: false
+            referencedRelation: "bots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mcp_servers: {
+        Row: {
+          api_key: string | null
+          approval_mode: string
+          created_at: string
+          description: string | null
+          enabled: boolean
+          id: string
+          name: string
+          url: string
+          user_id: string
+        }
+        Insert: {
+          api_key?: string | null
+          approval_mode?: string
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          name: string
+          url: string
+          user_id: string
+        }
+        Update: {
+          api_key?: string | null
+          approval_mode?: string
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          name?: string
+          url?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mcp_servers_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      users: {
+        Row: {
+          created_at: string
+          email: string
+          google_auth: boolean | null
+          id: string
+          name: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          google_auth?: boolean | null
+          id?: string
+          name?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          google_auth?: boolean | null
+          id?: string
+          name?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
