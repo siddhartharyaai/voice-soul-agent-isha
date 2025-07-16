@@ -99,6 +99,7 @@ export default function VoiceApp() {
           <div className="lg:col-span-2 flex flex-col">
             <VoiceBot 
               botName={activeBot.name}
+              botId={activeBot.id}
               messages={currentMessages}
               onAddMessage={addMessage}
               onSaveConversation={saveConversation}
