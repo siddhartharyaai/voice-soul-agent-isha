@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useBots } from '@/hooks/useBots';
 import { useConversations } from '@/hooks/useConversations';
 import { useMCPServers } from '@/hooks/useMCPServers';
+import { useAPIKeys } from '@/hooks/useAPIKeys';
 
 export default function VoiceApp() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);

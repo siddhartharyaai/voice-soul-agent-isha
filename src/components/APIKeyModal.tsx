@@ -27,7 +27,7 @@ import { useToast } from '@/hooks/use-toast';
 interface APIKeyModalProps {
   isOpen: boolean;
   onClose: () => void;
-  service: 'gemini' | 'deepgram' | 'perplexity' | 'google' | null;
+  service: 'gemini' | 'deepgram' | 'perplexity' | 'openai' | 'notion' | 'slack' | 'todoist' | 'github' | 'spotify' | 'google' | null;
   onSave: (service: string, apiKey: string) => Promise<void>;
 }
 
@@ -58,6 +58,60 @@ const serviceConfig = {
     helpText: 'Get your API key from Perplexity Settings',
     pattern: /^pplx-[0-9a-f]{56}$/,
     icon: '🔍'
+  },
+  openai: {
+    name: 'OpenAI',
+    description: 'Optional: Enhanced AI capabilities',
+    placeholder: 'Enter your OpenAI API key...',
+    helpUrl: 'https://platform.openai.com/api-keys',
+    helpText: 'Get your API key from OpenAI Platform',
+    pattern: /^sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20}$/,
+    icon: '🧠'
+  },
+  notion: {
+    name: 'Notion',
+    description: 'Optional: Notion workspace integration',
+    placeholder: 'OAuth handled automatically',
+    helpUrl: 'https://www.notion.so/my-integrations',
+    helpText: 'OAuth consent will be requested when needed',
+    pattern: /.*/,
+    icon: '📝'
+  },
+  slack: {
+    name: 'Slack',
+    description: 'Optional: Slack workspace integration',
+    placeholder: 'OAuth handled automatically',
+    helpUrl: 'https://api.slack.com/apps',
+    helpText: 'OAuth consent will be requested when needed',
+    pattern: /.*/,
+    icon: '💬'
+  },
+  todoist: {
+    name: 'Todoist',
+    description: 'Optional: Task management integration',
+    placeholder: 'Enter your Todoist API token...',
+    helpUrl: 'https://todoist.com/prefs/integrations',
+    helpText: 'Get your API token from Todoist settings',
+    pattern: /^[a-f0-9]{40}$/,
+    icon: '✅'
+  },
+  github: {
+    name: 'GitHub',
+    description: 'Optional: Repository and issue management',
+    placeholder: 'OAuth handled automatically',
+    helpUrl: 'https://github.com/settings/developers',
+    helpText: 'OAuth consent will be requested when needed',
+    pattern: /.*/,
+    icon: '🐙'
+  },
+  spotify: {
+    name: 'Spotify',
+    description: 'Optional: Music control and recommendations',
+    placeholder: 'OAuth handled automatically',
+    helpUrl: 'https://developer.spotify.com/dashboard',
+    helpText: 'OAuth consent will be requested when needed',
+    pattern: /.*/,
+    icon: '🎵'
   },
   google: {
     name: 'Google OAuth',
@@ -94,6 +148,31 @@ export function APIKeyModal({ isOpen, onClose, service, onSave }: APIKeyModalPro
   };
 
   const handleSave = async () => {
+    // For OAuth services, initiate OAuth flow
+    const oauthServices = ['google', 'notion', 'slack', 'github', 'spotify'];
+    
+    if (oauthServices.includes(service)) {
+      setIsLoading(true);
+      try {
+        await onSave(service, 'oauth');
+        toast({
+          title: "OAuth initiated",
+          description: `${config.name} OAuth flow has been started`,
+        });
+        onClose();
+      } catch (error: any) {
+        toast({
+          variant: "destructive",
+          title: "Failed to start OAuth",
+          description: error.message || "An error occurred while starting OAuth",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    // For API key services, validate and save
     const error = validateApiKey(apiKey);
     if (error) {
       setValidationError(error);
@@ -156,7 +235,7 @@ export function APIKeyModal({ isOpen, onClose, service, onSave }: APIKeyModalPro
           </Card>
 
           {/* API Key Input */}
-          {service !== 'google' ? (
+          {!['google', 'notion', 'slack', 'github', 'spotify'].includes(service) ? (
             <div className="space-y-2">
               <Label htmlFor="api-key">API Key</Label>
               <div className="relative">
@@ -205,7 +284,7 @@ export function APIKeyModal({ isOpen, onClose, service, onSave }: APIKeyModalPro
               <CardContent className="p-4 text-center">
                 <div className="text-lg mb-2">🔐</div>
                 <p className="text-sm text-muted-foreground">
-                  Google OAuth will be initiated automatically when you first use Calendar or Gmail features.
+                  {config.name} OAuth will be initiated automatically when you first use {service} features.
                 </p>
               </CardContent>
             </Card>
@@ -237,7 +316,20 @@ export function APIKeyModal({ isOpen, onClose, service, onSave }: APIKeyModalPro
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            {service !== 'google' && (
+            {['google', 'notion', 'slack', 'github', 'spotify'].includes(service) ? (
+              <Button 
+                onClick={handleSave} 
+                disabled={isLoading}
+                className="gap-2"
+              >
+                {isLoading ? (
+                  <div className="w-4 h-4 rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground animate-spin" />
+                ) : (
+                  <Key className="w-4 h-4" />
+                )}
+                Start OAuth
+              </Button>
+            ) : (
               <Button 
                 onClick={handleSave} 
                 disabled={isLoading || !apiKey || !!validationError}

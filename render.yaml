@@ -1,0 +1,126 @@
+services:
+  - type: web
+    name: isha-voice-backend
+    env: python
+    plan: starter
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && python -m uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+    repo: https://github.com/your-username/isha-voice-assistant.git
+    branch: main
+    rootDir: ./
+    healthCheckPath: /health
+    
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PORT
+        value: 8000
+      
+      # Core Services (Required)
+      - key: SUPABASE_URL
+        fromDatabase:
+          name: isha-config
+          property: supabase_url
+      - key: SUPABASE_ANON_KEY
+        fromDatabase:
+          name: isha-config
+          property: supabase_anon_key
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        fromDatabase:
+          name: isha-config
+          property: supabase_service_role_key
+      
+      - key: GEMINI_API_KEY
+        fromDatabase:
+          name: isha-config
+          property: gemini_api_key
+      - key: DEEPGRAM_API_KEY
+        fromDatabase:
+          name: isha-config
+          property: deepgram_api_key
+      
+      - key: LIVEKIT_API_KEY
+        fromDatabase:
+          name: isha-config
+          property: livekit_api_key
+      - key: LIVEKIT_API_SECRET
+        fromDatabase:
+          name: isha-config
+          property: livekit_api_secret
+      - key: LIVEKIT_WS_URL
+        fromDatabase:
+          name: isha-config
+          property: livekit_ws_url
+      
+      # Security
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      
+      # Optional Services
+      - key: OPENAI_API_KEY
+        fromDatabase:
+          name: isha-config
+          property: openai_api_key
+      - key: PERPLEXITY_API_KEY
+        fromDatabase:
+          name: isha-config
+          property: perplexity_api_key
+      
+      # OAuth Configuration
+      - key: GOOGLE_CLIENT_ID
+        fromDatabase:
+          name: isha-config
+          property: google_client_id
+      - key: GOOGLE_CLIENT_SECRET
+        fromDatabase:
+          name: isha-config
+          property: google_client_secret
+      
+      # Productivity Integrations
+      - key: SLACK_CLIENT_ID
+        fromDatabase:
+          name: isha-config
+          property: slack_client_id
+      - key: SLACK_CLIENT_SECRET
+        fromDatabase:
+          name: isha-config
+          property: slack_client_secret
+      
+      - key: NOTION_CLIENT_ID
+        fromDatabase:
+          name: isha-config
+          property: notion_client_id
+      - key: NOTION_CLIENT_SECRET
+        fromDatabase:
+          name: isha-config
+          property: notion_client_secret
+      
+      - key: GITHUB_CLIENT_ID
+        fromDatabase:
+          name: isha-config
+          property: github_client_id
+      - key: GITHUB_CLIENT_SECRET
+        fromDatabase:
+          name: isha-config
+          property: github_client_secret
+      
+      # Server Configuration
+      - key: DEBUG
+        value: false
+      - key: HOST
+        value: 0.0.0.0
+      - key: LOG_LEVEL
+        value: info
+      - key: CORS_ORIGINS
+        value: "*"
+
+databases:
+  - name: isha-config
+    plan: starter
+
+# Redis for caching (free tier)
+  - name: isha-redis
+    plan: starter
+    type: redis

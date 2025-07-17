@@ -1,0 +1,74 @@
+-- Create user_tokens table for OAuth tokens storage
+CREATE TABLE IF NOT EXISTS public.user_tokens (
+  id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL,
+  service TEXT NOT NULL,
+  tokens JSONB NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  UNIQUE(user_id, service)
+);
+
+-- Enable RLS
+ALTER TABLE public.user_tokens ENABLE ROW LEVEL SECURITY;
+
+-- Create policies
+CREATE POLICY "Users can view their own tokens" 
+ON public.user_tokens 
+FOR SELECT 
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own tokens" 
+ON public.user_tokens 
+FOR INSERT 
+WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own tokens" 
+ON public.user_tokens 
+FOR UPDATE 
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own tokens" 
+ON public.user_tokens 
+FOR DELETE 
+USING (auth.uid() = user_id);
+
+-- Add trigger for automatic timestamp updates
+CREATE TRIGGER update_user_tokens_updated_at
+BEFORE UPDATE ON public.user_tokens
+FOR EACH ROW
+EXECUTE FUNCTION public.update_updated_at_column();
+
+-- Update user_api_keys table structure to use encrypted_data column
+ALTER TABLE public.user_api_keys 
+DROP COLUMN IF EXISTS api_key;
+
+-- Ensure encrypted_data column exists
+ALTER TABLE public.user_api_keys 
+ADD COLUMN IF NOT EXISTS encrypted_data TEXT NOT NULL DEFAULT '';
+
+-- Update user_api_keys policies
+DROP POLICY IF EXISTS "Users can view their own API keys" ON public.user_api_keys;
+DROP POLICY IF EXISTS "Users can insert their own API keys" ON public.user_api_keys;
+DROP POLICY IF EXISTS "Users can update their own API keys" ON public.user_api_keys;
+DROP POLICY IF EXISTS "Users can delete their own API keys" ON public.user_api_keys;
+
+CREATE POLICY "Users can view their own API keys" 
+ON public.user_api_keys 
+FOR SELECT 
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own API keys" 
+ON public.user_api_keys 
+FOR INSERT 
+WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own API keys" 
+ON public.user_api_keys 
+FOR UPDATE 
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own API keys" 
+ON public.user_api_keys 
+FOR DELETE 
+USING (auth.uid() = user_id);
