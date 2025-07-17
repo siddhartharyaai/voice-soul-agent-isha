@@ -86,14 +86,6 @@ export function WorkflowPanel({ isOpen, onToggle }: WorkflowPanelProps) {
       enabled: true,
       shortcut: 'Cmd+S'
     },
-    {
-      id: 'weather',
-      title: 'Weather',
-      description: 'Get current weather and forecasts',
-      icon: CloudSun,
-      category: 'information',
-      enabled: true
-    },
     
     // Entertainment
     {

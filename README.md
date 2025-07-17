@@ -7,7 +7,7 @@ A sophisticated AI voice assistant with real-time voice processing, external too
 - 🎤 **Real-time Voice Processing**: LiveKit integration with Deepgram STT and TTS
 - 🧠 **Google Gemini LLM**: Advanced language model with function calling
 - 🔧 **MCP Protocol**: Secure tool integration framework
-- 🌐 **Built-in Tools**: Calendar, Gmail, Search, Weather, and more
+- 🌐 **Built-in Tools**: Calendar, Gmail, Search, and more
 - ⚙️ **Custom Workflows**: User-defined MCP servers and automations
 - 🎛️ **Supabase Backend**: User authentication and data persistence
 
@@ -18,7 +18,7 @@ A sophisticated AI voice assistant with real-time voice processing, external too
 - Node.js 18+ 
 - Python 3.9+
 - Supabase account
-- API keys for: Deepgram, Google Gemini, OpenWeatherMap (optional: Perplexity, Google Search)
+- API keys for: Deepgram, Google Gemini (optional: Perplexity, Google Search)
 
 ### 1. Frontend Setup
 
@@ -57,7 +57,6 @@ SUPABASE_ANON_KEY=your_supabase_anon_key
 
 # Optional (for extended functionality)
 PERPLEXITY_API_KEY=your_perplexity_key
-OPENWEATHER_API_KEY=your_openweather_key
 GOOGLE_SEARCH_API_KEY=your_google_search_key
 GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id
 ```
@@ -81,15 +80,14 @@ GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id
 1. **Google Calendar** - Schedule and view events
 2. **Gmail** - Send and read emails
 3. **Perplexity Search** - Web search with AI summarization
-4. **Weather** - Current conditions and forecasts
-5. **Activepieces** - Custom workflow automation
+4. **Activepieces** - Custom workflow automation
 
 ## Usage
 
 1. **Create a Bot**: Configure name, personality, voice, and model
 2. **Add MCP Servers**: Extend capabilities with custom tools
 3. **Start Voice Session**: Click the microphone to begin conversation
-4. **Voice Commands**: "Schedule a meeting tomorrow at 2 PM" or "What's the weather like?"
+4. **Voice Commands**: "Schedule a meeting tomorrow at 2 PM" or "Search for the latest AI news"
 
 ## MCP Server Integration
 

@@ -91,6 +91,30 @@ export function useConversations(botId?: string) {
     setCurrentMessages([]);
   };
 
+  const deleteConversation = async (conversationId: string) => {
+    try {
+      const { error } = await supabase
+        .from('conversations')
+        .delete()
+        .eq('id', conversationId);
+
+      if (error) throw error;
+
+      setConversations(prev => prev.filter(conv => conv.id !== conversationId));
+      
+      toast({
+        title: "Conversation deleted",
+        description: "The conversation has been removed.",
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error deleting conversation",
+        description: error.message,
+      });
+    }
+  };
+
   const exportHistory = () => {
     const allMessages = conversations.flatMap(conv => conv.messages);
     const exportData = {
@@ -129,6 +153,7 @@ export function useConversations(botId?: string) {
     loading,
     addMessage,
     saveConversation,
+    deleteConversation,
     clearCurrentMessages,
     exportHistory,
     refetch: fetchConversations,
