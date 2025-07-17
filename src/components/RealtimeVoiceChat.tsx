@@ -130,8 +130,8 @@ export function RealtimeVoiceChat({
 
       mediaStreamRef.current = stream;
 
-      // Connect to realtime voice WebSocket with correct Supabase URL
-      const wsUrl = `wss://nlxpyaeufqabcyimlohn.supabase.co/functions/v1/realtime-voice`;
+      // Use existing working edge function for WebSocket connection
+      const wsUrl = `wss://nlxpyaeufqabcyimlohn.supabase.co/functions/v1/openai-realtime`;
       
       voiceDebugger.log('info', 'Attempting WebSocket connection', { url: wsUrl });
       console.log('Connecting to WebSocket:', wsUrl);

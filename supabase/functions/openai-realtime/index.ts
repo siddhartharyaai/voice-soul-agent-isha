@@ -1,6 +1,19 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+console.log('Voice chat function starting...')
 
 serve(async (req) => {
+  // Handle CORS
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
   const { headers } = req
   const upgradeHeader = headers.get("upgrade") || ""
 
@@ -10,20 +23,32 @@ serve(async (req) => {
 
   const { socket, response } = Deno.upgradeWebSocket(req)
   
-  const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')
-  if (!OPENAI_API_KEY) {
-    console.error('OPENAI_API_KEY not found')
-    socket.close(1000, 'Missing OpenAI API key')
+  // Get API keys - use Deepgram and Gemini instead of OpenAI
+  const DEEPGRAM_API_KEY = Deno.env.get('DEEPGRAM_API_KEY')
+  const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')
+  
+  console.log('API Keys check:', { deepgram: !!DEEPGRAM_API_KEY, gemini: !!GEMINI_API_KEY })
+  
+  if (!DEEPGRAM_API_KEY || !GEMINI_API_KEY) {
+    console.error('Missing API keys')
+    socket.close(1000, 'Missing API keys')
     return response
   }
 
-  let openAISocket: WebSocket | null = null
-  let sessionStarted = false
+  let deepgramSocket: WebSocket | null = null
+  let botConfig: any = null
+  let conversationHistory: any[] = []
+  let currentSession: any = null
 
-  console.log('WebSocket connection opened')
+  // Create Supabase client
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+  )
 
   socket.onopen = () => {
     console.log('Client WebSocket connection established')
+    socket.send(JSON.stringify({ type: 'connection_ready' }))
   }
 
   socket.onmessage = async (event) => {
@@ -35,31 +60,19 @@ serve(async (req) => {
         case 'start_session':
           await handleStartSession(data)
           break
-        case 'send_audio':
-          if (openAISocket && openAISocket.readyState === WebSocket.OPEN) {
-            // Forward audio to OpenAI
-            openAISocket.send(JSON.stringify({
-              type: 'input_audio_buffer.append',
-              audio: data.audio
-            }))
+        case 'audio_chunk':
+          if (deepgramSocket && deepgramSocket.readyState === WebSocket.OPEN && data.audio) {
+            // Decode and forward to Deepgram
+            const binaryAudio = atob(data.audio)
+            const audioBuffer = new Uint8Array(binaryAudio.length)
+            for (let i = 0; i < binaryAudio.length; i++) {
+              audioBuffer[i] = binaryAudio.charCodeAt(i)
+            }
+            deepgramSocket.send(audioBuffer)
           }
           break
-        case 'send_text':
-          if (openAISocket && openAISocket.readyState === WebSocket.OPEN) {
-            // Send text message to OpenAI
-            openAISocket.send(JSON.stringify({
-              type: 'conversation.item.create',
-              item: {
-                type: 'message',
-                role: 'user',
-                content: [{
-                  type: 'input_text',
-                  text: data.text
-                }]
-              }
-            }))
-            openAISocket.send(JSON.stringify({type: 'response.create'}))
-          }
+        case 'stop_session':
+          await handleStopSession()
           break
         default:
           console.log('Unknown client message type:', data.type)
@@ -67,7 +80,7 @@ serve(async (req) => {
     } catch (error) {
       console.error('Error processing client message:', error)
       socket.send(JSON.stringify({
-        type: 'error',
+        type: 'processing_error',
         message: error.message
       }))
     }
@@ -75,140 +88,191 @@ serve(async (req) => {
 
   socket.onclose = () => {
     console.log('Client WebSocket connection closed')
-    if (openAISocket) {
-      openAISocket.close()
+    if (deepgramSocket) {
+      deepgramSocket.close()
     }
   }
 
   async function handleStartSession(data: any) {
-    console.log('Starting OpenAI Realtime session...')
+    console.log('Starting session...', data)
     
     try {
-      // Connect to OpenAI Realtime API
-      openAISocket = new WebSocket(
-        `wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01`,
-        [],
-        {
-          headers: {
-            'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            'OpenAI-Beta': 'realtime=v1'
-          }
-        }
-      )
+      // Get bot configuration
+      const { data: bot, error: botError } = await supabase
+        .from('bots')
+        .select('*')
+        .eq('id', data.botId)
+        .eq('user_id', data.userId)
+        .single()
 
-      openAISocket.onopen = () => {
-        console.log('Connected to OpenAI Realtime API')
+      if (botError || !bot) {
+        throw new Error('Bot not found or access denied')
+      }
+
+      botConfig = bot
+      currentSession = {
+        sessionId: crypto.randomUUID(),
+        botId: data.botId,
+        userId: data.userId,
+        startTime: new Date().toISOString()
+      }
+
+      console.log('Bot loaded:', bot.name)
+
+      // Connect to Deepgram for STT
+      const deepgramUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=en&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000`
+      
+      deepgramSocket = new WebSocket(deepgramUrl, [
+        'token',
+        DEEPGRAM_API_KEY
+      ])
+
+      deepgramSocket.onopen = () => {
+        console.log('Connected to Deepgram')
         socket.send(JSON.stringify({
-          type: 'session_connecting'
+          type: 'session_started',
+          sessionId: currentSession.sessionId,
+          botName: bot.name
         }))
       }
 
-      openAISocket.onmessage = (event) => {
+      deepgramSocket.onmessage = async (event) => {
         try {
-          const openAIData = JSON.parse(event.data)
-          console.log('OpenAI message type:', openAIData.type)
+          const result = JSON.parse(event.data)
           
-          if (openAIData.type === 'session.created') {
-            console.log('Session created, sending configuration...')
+          if (result.channel?.alternatives?.[0]) {
+            const transcript = result.channel.alternatives[0].transcript
+            const isFinal = result.is_final
             
-            // Send session configuration
-            const sessionConfig = {
-              type: 'session.update',
-              session: {
-                modalities: ['text', 'audio'],
-                instructions: `You are ${data.botName || 'an AI assistant'}. ${data.personality || 'You are helpful, friendly, and conversational.'} Keep responses natural and conversational for voice interaction.`,
-                voice: data.voice || 'alloy',
-                input_audio_format: 'pcm16',
-                output_audio_format: 'pcm16',
-                input_audio_transcription: {
-                  model: 'whisper-1'
-                },
-                turn_detection: {
-                  type: 'server_vad',
-                  threshold: 0.5,
-                  prefix_padding_ms: 300,
-                  silence_duration_ms: 1000
-                },
-                temperature: 0.8,
-                max_response_output_tokens: 'inf'
+            if (transcript.trim()) {
+              socket.send(JSON.stringify({
+                type: 'transcript_update',
+                text: transcript,
+                isFinal: isFinal
+              }))
+
+              if (isFinal && transcript.trim().length > 2) {
+                await processUserMessage(transcript)
               }
             }
-            
-            openAISocket!.send(JSON.stringify(sessionConfig))
-            sessionStarted = true
-            
-          } else if (openAIData.type === 'session.updated') {
-            console.log('Session configured successfully')
-            socket.send(JSON.stringify({
-              type: 'session_ready'
-            }))
-            
-          } else if (openAIData.type === 'response.audio.delta') {
-            // Forward audio response to client
-            socket.send(JSON.stringify({
-              type: 'audio_delta',
-              delta: openAIData.delta
-            }))
-            
-          } else if (openAIData.type === 'response.audio_transcript.delta') {
-            // Forward transcript to client
-            socket.send(JSON.stringify({
-              type: 'transcript_delta',
-              delta: openAIData.delta
-            }))
-            
-          } else if (openAIData.type === 'conversation.item.input_audio_transcription.completed') {
-            // User speech transcript
-            socket.send(JSON.stringify({
-              type: 'user_transcript',
-              transcript: openAIData.transcript
-            }))
-            
-          } else if (openAIData.type === 'response.created') {
-            socket.send(JSON.stringify({
-              type: 'response_started'
-            }))
-            
-          } else if (openAIData.type === 'response.done') {
-            socket.send(JSON.stringify({
-              type: 'response_completed'
-            }))
-            
-          } else if (openAIData.type === 'error') {
-            console.error('OpenAI error:', openAIData)
-            socket.send(JSON.stringify({
-              type: 'error',
-              message: openAIData.error?.message || 'OpenAI API error'
-            }))
           }
-          
         } catch (error) {
-          console.error('Error processing OpenAI message:', error)
+          console.error('Deepgram processing error:', error)
         }
       }
 
-      openAISocket.onerror = (error) => {
-        console.error('OpenAI WebSocket error:', error)
+      deepgramSocket.onerror = (error) => {
+        console.error('Deepgram error:', error)
         socket.send(JSON.stringify({
-          type: 'error',
-          message: 'OpenAI connection error'
-        }))
-      }
-
-      openAISocket.onclose = (event) => {
-        console.log('OpenAI WebSocket closed:', event.code, event.reason)
-        socket.send(JSON.stringify({
-          type: 'session_ended'
+          type: 'stt_error',
+          message: 'Speech recognition error'
         }))
       }
 
     } catch (error) {
-      console.error('Error connecting to OpenAI:', error)
+      console.error('Error starting session:', error)
       socket.send(JSON.stringify({
-        type: 'error',
-        message: `Failed to connect to OpenAI: ${error.message}`
+        type: 'session_error',
+        message: `Failed to start session: ${error.message}`
       }))
     }
+  }
+
+  async function processUserMessage(transcript: string) {
+    try {
+      console.log('Processing:', transcript)
+      
+      conversationHistory.push({
+        role: 'user',
+        content: transcript
+      })
+
+      socket.send(JSON.stringify({
+        type: 'user_message',
+        content: transcript
+      }))
+
+      // Generate AI response with Gemini
+      const systemPrompt = `You are ${botConfig.name}. ${botConfig.personality || 'You are a helpful AI assistant.'} Keep responses conversational and concise for voice interaction.`
+      
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: `${systemPrompt}\n\nUser: ${transcript}\n\nAssistant:`
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 100,
+          },
+        }),
+      })
+
+      const result = await response.json()
+      const aiResponse = result.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I had trouble responding.'
+
+      conversationHistory.push({
+        role: 'assistant',
+        content: aiResponse
+      })
+
+      socket.send(JSON.stringify({
+        type: 'ai_response',
+        content: aiResponse
+      }))
+
+      // Generate speech with Deepgram TTS
+      if (botConfig.auto_speak) {
+        await generateSpeech(aiResponse)
+      }
+
+    } catch (error) {
+      console.error('Error processing message:', error)
+      socket.send(JSON.stringify({
+        type: 'processing_error',
+        message: 'Failed to process message'
+      }))
+    }
+  }
+
+  async function generateSpeech(text: string) {
+    try {
+      const response = await fetch('https://api.deepgram.com/v1/speak?model=aura-asteria-en', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${DEEPGRAM_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text }),
+      })
+
+      const arrayBuffer = await response.arrayBuffer()
+      const base64Audio = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+
+      socket.send(JSON.stringify({
+        type: 'audio_response',
+        audio: base64Audio
+      }))
+
+    } catch (error) {
+      console.error('TTS Error:', error)
+      socket.send(JSON.stringify({
+        type: 'tts_error',
+        message: 'Failed to generate speech'
+      }))
+    }
+  }
+
+  async function handleStopSession() {
+    if (deepgramSocket) {
+      deepgramSocket.close()
+    }
+    socket.send(JSON.stringify({ type: 'session_ended' }))
   }
 
   return response
