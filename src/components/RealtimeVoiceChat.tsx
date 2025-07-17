@@ -128,9 +128,8 @@ export function RealtimeVoiceChat({
 
       mediaStreamRef.current = stream;
 
-      // Connect to realtime voice WebSocket
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/functions/v1/realtime-voice`;
+      // Connect to realtime voice WebSocket  
+      const wsUrl = `wss://nlxpyaeufqabcyimlohn.supabase.co/functions/v1/realtime-voice`;
       
       wsRef.current = new WebSocket(wsUrl);
 
