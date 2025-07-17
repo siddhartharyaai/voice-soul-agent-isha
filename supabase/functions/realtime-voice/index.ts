@@ -7,23 +7,34 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 }
 
+console.log('Realtime voice function starting...')
+
 serve(async (req) => {
+  console.log('Request received:', req.method, req.url)
+  
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
+    console.log('Handling CORS preflight')
     return new Response(null, { headers: corsHeaders });
   }
 
   const { headers } = req
   const upgradeHeader = headers.get("upgrade") || ""
+  
+  console.log('Headers:', Object.fromEntries(headers.entries()))
+  console.log('Upgrade header:', upgradeHeader)
 
   if (upgradeHeader.toLowerCase() !== "websocket") {
+    console.log('Not a WebSocket request')
     return new Response("Expected WebSocket connection", { 
       status: 400,
       headers: corsHeaders 
     })
   }
 
+  console.log('Attempting WebSocket upgrade...')
   const { socket, response } = Deno.upgradeWebSocket(req)
+  console.log('WebSocket upgrade successful')
   
   // Get environment variables
   const DEEPGRAM_API_KEY = Deno.env.get('DEEPGRAM_API_KEY')
@@ -31,11 +42,15 @@ serve(async (req) => {
   const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
   const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')
   
+  console.log('Environment check:', { 
+    deepgram: !!DEEPGRAM_API_KEY, 
+    gemini: !!GEMINI_API_KEY,
+    supabase_url: !!SUPABASE_URL,
+    supabase_key: !!SUPABASE_ANON_KEY
+  })
+  
   if (!DEEPGRAM_API_KEY || !GEMINI_API_KEY) {
-    console.error('Missing API keys:', { 
-      deepgram: !!DEEPGRAM_API_KEY, 
-      gemini: !!GEMINI_API_KEY 
-    })
+    console.error('Missing required API keys')
     socket.close(1000, 'Missing API keys')
     return response
   }
@@ -52,6 +67,8 @@ serve(async (req) => {
     SUPABASE_URL ?? '',
     SUPABASE_ANON_KEY ?? ''
   )
+
+  console.log('Supabase client created successfully')
 
   socket.onopen = () => {
     console.log('WebSocket connection opened - ready for real-time voice')
