@@ -130,8 +130,8 @@ export function RealtimeVoiceChat({
 
       mediaStreamRef.current = stream;
 
-      // Test with new simple voice function
-      const wsUrl = `wss://nlxpyaeufqabcyimlohn.supabase.co/functions/v1/voice-test`;
+      // Connect to minimal echo function for testing
+      const wsUrl = `wss://nlxpyaeufqabcyimlohn.supabase.co/functions/v1/voice-echo`;
       
       console.log('🔥 ATTEMPTING CONNECTION TO:', wsUrl);
       voiceDebugger.log('info', 'Attempting WebSocket connection', { url: wsUrl });
