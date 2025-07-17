@@ -189,7 +189,15 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
       setVoiceSession(sessionData);
 
       // Connect WebSocket with enhanced error handling
-      const wsUrl = `ws://localhost:8000/ws/${sessionData.session_id}`;
+      const getWebSocketUrl = () => {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+          ? 'localhost:8000' 
+          : `${window.location.hostname}:8000`;
+        return `${protocol}//${wsHost}/ws/${sessionData.session_id}`;
+      };
+      
+      const wsUrl = getWebSocketUrl();
       Logger.debug('Connecting WebSocket', { url: wsUrl });
       
       const ws = new WebSocket(wsUrl);

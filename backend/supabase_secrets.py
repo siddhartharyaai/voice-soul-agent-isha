@@ -25,26 +25,43 @@ class SupabaseSecretsClient:
             if secret_name in self.secrets_cache:
                 return self.secrets_cache[secret_name]
             
-            # For now, return hardcoded values for testing
-            # In production, this would fetch from Supabase secrets
-            default_secrets = {
-                "GEMINI_API_KEY": "your-gemini-api-key-here",
-                "DEEPGRAM_API_KEY": "your-deepgram-api-key-here", 
-                "LIVEKIT_API_KEY": "your-livekit-api-key-here",
-                "LIVEKIT_API_SECRET": "your-livekit-api-secret-here",
-                "LIVEKIT_WS_URL": "wss://your-livekit-url.com",
-                "SUPABASE_URL": self.supabase_url,
-                "SUPABASE_ANON_KEY": self.anon_key,
-                "SUPABASE_SERVICE_ROLE_KEY": "your-service-role-key-here"
+            # Try to fetch from Supabase secrets using Edge Function
+            service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            if not service_role_key:
+                logger.warning(f"No service role key available to fetch secret: {secret_name}")
+                return None
+            
+            headers = {
+                "apikey": service_role_key,
+                "Authorization": f"Bearer {service_role_key}",
+                "Content-Type": "application/json"
             }
             
-            secret_value = default_secrets.get(secret_name)
-            if secret_value:
-                self.secrets_cache[secret_name] = secret_value
-                logger.info(f"✅ Retrieved secret: {secret_name}")
-                return secret_value
+            async with httpx.AsyncClient() as client:
+                # Try to get from Supabase project settings
+                response = await client.post(
+                    f"{self.supabase_url}/functions/v1/get-secret",
+                    headers=headers,
+                    json={"secret_name": secret_name},
+                    timeout=10.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    secret_value = data.get("value")
+                    if secret_value:
+                        self.secrets_cache[secret_name] = secret_value
+                        logger.info(f"✅ Retrieved secret from Supabase: {secret_name}")
+                        return secret_value
             
-            logger.warning(f"⚠️ Secret not found: {secret_name}")
+            # Fallback to environment variable
+            env_value = os.getenv(secret_name)
+            if env_value and env_value != "":
+                self.secrets_cache[secret_name] = env_value
+                logger.info(f"✅ Retrieved secret from env: {secret_name}")
+                return env_value
+            
+            logger.warning(f"⚠️ Secret not found in Supabase or env: {secret_name}")
             return None
             
         except Exception as e:

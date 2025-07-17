@@ -84,16 +84,21 @@ def main():
         else:
             print(f"⚠️ Requirements file not found: {requirements_file}")
         
-        # Start the server using the production startup script
+        # Start the server directly with uvicorn
         print("\n🚀 Starting FastAPI server...")
         print("=" * 50)
-        startup_script = backend_dir / "start_backend.py"
-        if startup_script.exists():
-            subprocess.run([str(python_exe), str(startup_script)])
-        else:
-            print(f"❌ Startup script not found: {startup_script}")
-            print("💡 Trying to start server directly...")
-            subprocess.run([str(python_exe), "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"])
+        print(f"🌐 Server will be available at: http://localhost:8000")
+        print(f"📊 Health check: http://localhost:8000/health")
+        print(f"📋 API docs: http://localhost:8000/docs")
+        print("=" * 50)
+        
+        subprocess.run([
+            str(python_exe), "-m", "uvicorn", "main:app",
+            "--host", "0.0.0.0",
+            "--port", "8000", 
+            "--reload",
+            "--log-level", "info"
+        ])
             
     except KeyboardInterrupt:
         print("\n🛑 Server stopped by user")
