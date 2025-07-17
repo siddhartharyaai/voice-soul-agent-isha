@@ -20,6 +20,7 @@ import {
   Key, 
   Play,
   Volume2,
+  Palette,
   X
 } from 'lucide-react';
 import { Bot } from '@/hooks/useBots';
@@ -27,6 +28,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useMCPServers } from '@/hooks/useMCPServers';
 import { MCPServerForm } from '@/components/MCPServerForm';
 import { useAuth } from '@/hooks/useAuth';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { useTheme } from '@/hooks/useTheme';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -151,14 +154,18 @@ export function SettingsPanel({ isOpen, onToggle, onShowAPIKeyModal, activeBot, 
           className="py-6"
         >
           <Tabs defaultValue="bot" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="bot" className="flex items-center gap-2">
                 <BotIcon className="w-4 h-4" />
                 Bot
               </TabsTrigger>
+              <TabsTrigger value="appearance" className="flex items-center gap-2">
+                <Palette className="w-4 h-4" />
+                Theme
+              </TabsTrigger>
               <TabsTrigger value="mcp" className="flex items-center gap-2">
                 <Server className="w-4 h-4" />
-                MCP Servers
+                MCP
               </TabsTrigger>
             </TabsList>
 
@@ -480,6 +487,29 @@ export function SettingsPanel({ isOpen, onToggle, onShowAPIKeyModal, activeBot, 
                         </motion.div>
                       ))
                     )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="appearance" className="space-y-6 mt-6">
+              {/* Theme Settings */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Appearance</CardTitle>
+                  <CardDescription>
+                    Customize the visual appearance of your assistant
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <Label className="text-sm font-medium">Theme</Label>
+                      <div className="text-xs text-muted-foreground">
+                        Choose between light and dark themes
+                      </div>
+                    </div>
+                    <ThemeToggle />
                   </div>
                 </CardContent>
               </Card>

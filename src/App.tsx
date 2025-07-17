@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import VoiceApp from "./pages/VoiceApp";
+import Landing from "./pages/Landing";
 import { OAuthCallback } from "./pages/OAuthCallback";
 import NotFound from "./pages/NotFound";
 
@@ -18,7 +19,8 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Index />} />
+          <Route path="/" element={<Landing />} />
+          <Route path="/app" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
           <Route path="/voice" element={<VoiceApp />} />
           <Route path="/oauth/callback" element={<OAuthCallback />} />
