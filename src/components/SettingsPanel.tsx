@@ -11,6 +11,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Settings, Trash2, Plus } from 'lucide-react';
 import { Bot } from '@/hooks/useBots';
 import { useToast } from '@/hooks/use-toast';
+import { useMCPServers } from '@/hooks/useMCPServers';
+import { MCPServerForm } from '@/components/MCPServerForm';
+import { useAuth } from '@/hooks/useAuth';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -26,12 +29,17 @@ export function SettingsPanel({ isOpen, onToggle, activeBot, onUpdateBot }: Sett
   const [model, setModel] = useState('');
   const [wakeWord, setWakeWord] = useState('');
   const [autoSpeak, setAutoSpeak] = useState(true);
-  const [mcpServers, setMcpServers] = useState([
-    { id: '1', name: 'Calendar', url: 'https://calendar-mcp.example.com', enabled: true },
-    { id: '2', name: 'Email', url: 'https://email-mcp.example.com', enabled: false },
-  ]);
   const [saving, setSaving] = useState(false);
+  
+  const { user } = useAuth();
   const { toast } = useToast();
+  const { 
+    mcpServers, 
+    loading: mcpLoading, 
+    updateMCPServer, 
+    deleteMCPServer,
+    refetch: refetchMCPServers
+  } = useMCPServers();
 
   // Update form when activeBot changes
   useEffect(() => {
@@ -66,24 +74,36 @@ export function SettingsPanel({ isOpen, onToggle, activeBot, onUpdateBot }: Sett
     }
   };
 
-  const addMcpServer = () => {
-    const newServer = {
-      id: Date.now().toString(),
-      name: 'New Server',
-      url: 'https://api.example.com',
-      enabled: true,
-    };
-    setMcpServers([...mcpServers, newServer]);
+  const handleDeleteMcpServer = async (id: string) => {
+    try {
+      await deleteMCPServer(id);
+      toast({
+        title: "Server removed",
+        description: "MCP server has been deleted successfully.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to delete MCP server.",
+      });
+    }
   };
 
-  const deleteMcpServer = (id: string) => {
-    setMcpServers(mcpServers.filter(server => server.id !== id));
-  };
-
-  const toggleMcpServer = (id: string, enabled: boolean) => {
-    setMcpServers(mcpServers.map(server => 
-      server.id === id ? { ...server, enabled } : server
-    ));
+  const handleToggleMcpServer = async (id: string, enabled: boolean) => {
+    try {
+      await updateMCPServer(id, { enabled });
+      toast({
+        title: "Server updated",
+        description: `MCP server has been ${enabled ? 'enabled' : 'disabled'}.`,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive", 
+        title: "Error",
+        description: "Failed to update MCP server.",
+      });
+    }
   };
 
   return (
@@ -203,34 +223,60 @@ export function SettingsPanel({ isOpen, onToggle, activeBot, onUpdateBot }: Sett
             <CardContent className="space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Connected Servers</span>
-                <Button variant="outline" size="sm" onClick={addMcpServer}>
-                  <Plus className="w-4 h-4 mr-1" />
-                  Add
-                </Button>
+                <MCPServerForm onServerAdded={refetchMCPServers} />
               </div>
               
               <div className="space-y-2">
-                {mcpServers.map((server) => (
-                  <div key={server.id} className="flex items-center justify-between p-2 border rounded">
-                    <div className="flex items-center space-x-3">
-                      <Switch
-                        checked={server.enabled}
-                        onCheckedChange={(enabled) => toggleMcpServer(server.id, enabled)}
-                      />
-                      <div>
-                        <div className="text-sm font-medium">{server.name}</div>
-                        <div className="text-xs text-muted-foreground">{server.url}</div>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => deleteMcpServer(server.id)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                {mcpLoading ? (
+                  <div className="text-sm text-muted-foreground text-center py-4">
+                    Loading MCP servers...
                   </div>
-                ))}
+                ) : mcpServers.length === 0 ? (
+                  <div className="text-sm text-muted-foreground text-center py-4">
+                    No MCP servers configured. Add one to extend your bot's capabilities.
+                  </div>
+                ) : (
+                  mcpServers.map((server) => (
+                    <div key={server.id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <Switch
+                          checked={server.enabled}
+                          onCheckedChange={(enabled) => handleToggleMcpServer(server.id, enabled)}
+                        />
+                        <div className="flex-1">
+                          <div className="text-sm font-medium">{server.name}</div>
+                          <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                            {server.url}
+                          </div>
+                          {server.description && (
+                            <div className="text-xs text-muted-foreground">
+                              {server.description}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              server.approval_mode === 'always_ask' 
+                                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                                : server.approval_mode === 'auto_approve'
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                            }`}>
+                              {server.approval_mode.replace('_', ' ')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteMcpServer(server.id)}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>

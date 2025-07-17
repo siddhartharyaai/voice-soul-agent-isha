@@ -175,11 +175,34 @@ class MCPProtocolHandler:
             ]
         )
         
+        # Add Activepieces MCP Server
+        activepieces_server = MCPServer(
+            name="activepieces_workflow",
+            url="https://cloud.activepieces.com/api/v1/mcp/VFOtpFDiYPOViCjhZ6rjN/sse",
+            description="Custom workflow automation via Activepieces",
+            approval_mode="always_ask",
+            tools=[
+                {
+                    "name": "trigger_workflow",
+                    "description": "Trigger an Activepieces workflow",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "workflow_id": {"type": "string", "description": "Workflow ID to trigger"},
+                            "input_data": {"type": "object", "description": "Input data for the workflow"}
+                        },
+                        "required": ["workflow_id"]
+                    }
+                }
+            ]
+        )
+        
         # Register default servers
         self.servers["google_calendar"] = calendar_server
         self.servers["gmail"] = gmail_server
         self.servers["perplexity_search"] = perplexity_server
         self.servers["openweather"] = weather_server
+        self.servers["activepieces_workflow"] = activepieces_server
         
         # Build tool registry
         self._rebuild_tool_registry()
@@ -380,55 +403,69 @@ class MCPProtocolHandler:
                 error=f"Failed to communicate with MCP server: {str(e)}"
             )
     
-    # Built-in tool handlers (placeholders - need actual API integrations)
+    # Built-in tool handlers with actual implementations
     async def _handle_calendar_event(self, arguments: Dict[str, Any]) -> MCPToolResult:
         """Handle Google Calendar event creation"""
-        # TODO: Implement actual Google Calendar API integration
-        return MCPToolResult(
-            result=f"Calendar event '{arguments.get('title')}' would be created from {arguments.get('start_time')} to {arguments.get('end_time')}"
-        )
+        from .tools.calendar_tools import calendar_tools
+        try:
+            result = await calendar_tools.add_event(arguments, "system")
+            return MCPToolResult(result=result)
+        except Exception as e:
+            return MCPToolResult(result="", error=str(e))
     
     async def _handle_get_calendar_events(self, arguments: Dict[str, Any]) -> MCPToolResult:
         """Handle getting calendar events"""
-        # TODO: Implement actual Google Calendar API integration
-        return MCPToolResult(
-            result=f"Calendar events from {arguments.get('start_date')} to {arguments.get('end_date')} would be retrieved"
-        )
+        from .tools.calendar_tools import calendar_tools
+        try:
+            result = await calendar_tools.get_events(arguments, "system")
+            return MCPToolResult(result=result)
+        except Exception as e:
+            return MCPToolResult(result="", error=str(e))
     
     async def _handle_send_email(self, arguments: Dict[str, Any]) -> MCPToolResult:
         """Handle Gmail email sending"""
-        # TODO: Implement actual Gmail API integration
-        return MCPToolResult(
-            result=f"Email to {arguments.get('to')} with subject '{arguments.get('subject')}' would be sent"
-        )
+        from .tools.gmail_tools import gmail_tools
+        try:
+            result = await gmail_tools.send_email(arguments, "system")
+            return MCPToolResult(result=result)
+        except Exception as e:
+            return MCPToolResult(result="", error=str(e))
     
     async def _handle_read_emails(self, arguments: Dict[str, Any]) -> MCPToolResult:
         """Handle reading Gmail emails"""
-        # TODO: Implement actual Gmail API integration
-        return MCPToolResult(
-            result=f"Recent emails with query '{arguments.get('query', 'all')}' would be retrieved"
-        )
+        from .tools.gmail_tools import gmail_tools
+        try:
+            result = await gmail_tools.read_emails(arguments, "system")
+            return MCPToolResult(result=result)
+        except Exception as e:
+            return MCPToolResult(result="", error=str(e))
     
     async def _handle_perplexity_search(self, arguments: Dict[str, Any]) -> MCPToolResult:
         """Handle Perplexity web search"""
-        # TODO: Implement actual Perplexity API integration
-        return MCPToolResult(
-            result=f"Web search results for '{arguments.get('query')}' would be returned"
-        )
+        from .tools.search_tools import search_tools
+        try:
+            result = await search_tools.perplexity_search(arguments)
+            return MCPToolResult(result=result)
+        except Exception as e:
+            return MCPToolResult(result="", error=str(e))
     
     async def _handle_get_weather(self, arguments: Dict[str, Any]) -> MCPToolResult:
         """Handle OpenWeatherMap current weather"""
-        # TODO: Implement actual OpenWeatherMap API integration
-        return MCPToolResult(
-            result=f"Current weather for {arguments.get('location')} would be retrieved"
-        )
+        from .tools.weather_tools import weather_tools
+        try:
+            result = await weather_tools.get_current_weather(arguments)
+            return MCPToolResult(result=result)
+        except Exception as e:
+            return MCPToolResult(result="", error=str(e))
     
     async def _handle_get_weather_forecast(self, arguments: Dict[str, Any]) -> MCPToolResult:
         """Handle OpenWeatherMap weather forecast"""
-        # TODO: Implement actual OpenWeatherMap API integration
-        return MCPToolResult(
-            result=f"Weather forecast for {arguments.get('location')} ({arguments.get('days', 5)} days) would be retrieved"
-        )
+        from .tools.weather_tools import weather_tools
+        try:
+            result = await weather_tools.get_weather_forecast(arguments)
+            return MCPToolResult(result=result)
+        except Exception as e:
+            return MCPToolResult(result="", error=str(e))
 
 # Global MCP handler instance
 mcp_handler = MCPProtocolHandler()
