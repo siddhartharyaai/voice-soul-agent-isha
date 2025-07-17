@@ -130,30 +130,47 @@ export function RealtimeVoiceChat({
 
       mediaStreamRef.current = stream;
 
-      // Use existing working edge function for WebSocket connection
+      // Test direct connection with detailed logging
       const wsUrl = `wss://nlxpyaeufqabcyimlohn.supabase.co/functions/v1/openai-realtime`;
       
+      console.log('🔥 ATTEMPTING CONNECTION TO:', wsUrl);
       voiceDebugger.log('info', 'Attempting WebSocket connection', { url: wsUrl });
-      console.log('Connecting to WebSocket:', wsUrl);
+      
       wsRef.current = new WebSocket(wsUrl);
+      
+      // Add immediate connection status logging
+      console.log('🔥 WebSocket created, readyState:', wsRef.current.readyState);
+      
+      // Test connection with a timeout
+      const connectionTimeout = setTimeout(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
+          console.log('🔥 CONNECTION TIMEOUT - still connecting after 5s');
+          voiceDebugger.log('error', 'Connection timeout after 5 seconds');
+          wsRef.current.close();
+          toast.error('Connection timeout - check network');
+          setConnecting(false);
+        }
+      }, 5000);
 
       wsRef.current.onopen = () => {
+        clearTimeout(connectionTimeout);
+        console.log('🔥 WEBSOCKET CONNECTED SUCCESSFULLY!');
         voiceDebugger.log('info', 'WebSocket connected successfully');
-        console.log('Connected to realtime voice');
         setIsConnected(true);
         setConnecting(false);
         
-        // Start session
+        // Start session immediately after connection
         const sessionData = {
           type: 'start_session',
           botId: activeBot.id,
           userId: user.id
         };
+        console.log('🔥 SENDING SESSION START:', sessionData);
         voiceDebugger.log('info', 'Sending session start request', sessionData);
         wsRef.current?.send(JSON.stringify(sessionData));
 
         setupAudioRecording(stream);
-        toast.success('Voice chat connected');
+        toast.success('🎉 Voice chat connected!');
       };
 
       wsRef.current.onmessage = (event) => {
@@ -162,16 +179,29 @@ export function RealtimeVoiceChat({
       };
 
       wsRef.current.onerror = (error) => {
-        voiceDebugger.log('error', 'WebSocket connection error', error);
+        clearTimeout(connectionTimeout);
+        console.log('🔥 WEBSOCKET ERROR:', error);
+        console.log('🔥 WebSocket state when error occurred:', wsRef.current?.readyState);
+        voiceDebugger.log('error', 'WebSocket connection error', { 
+          error: error.toString(),
+          readyState: wsRef.current?.readyState,
+          url: wsUrl
+        });
         voiceDebugger.incrementCounter('errors');
-        console.error('WebSocket error:', error);
-        toast.error('Connection failed - check logs');
+        toast.error('🚨 Connection failed - check console for details');
         setConnecting(false);
         setIsConnected(false);
       };
 
-      wsRef.current.onclose = () => {
-        console.log('WebSocket closed');
+      wsRef.current.onclose = (event) => {
+        clearTimeout(connectionTimeout);
+        console.log('🔥 WEBSOCKET CLOSED:', event.code, event.reason);
+        console.log('🔥 Was clean close:', event.wasClean);
+        voiceDebugger.log('info', 'WebSocket closed', { 
+          code: event.code, 
+          reason: event.reason,
+          wasClean: event.wasClean
+        });
         setIsConnected(false);
         setIsListening(false);
         setIsSpeaking(false);
