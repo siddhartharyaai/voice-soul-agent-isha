@@ -81,6 +81,7 @@ serve(async (req) => {
   socket.onmessage = async (event) => {
     try {
       const data = JSON.parse(event.data)
+      console.log('Received message:', data.type)
       
       switch (data.type) {
         case 'start_session':
@@ -98,7 +99,7 @@ serve(async (req) => {
     } catch (error) {
       console.error('Error processing message:', error)
       socket.send(JSON.stringify({
-        type: 'error',
+        type: 'processing_error',
         message: error.message
       }))
     }
@@ -111,8 +112,13 @@ serve(async (req) => {
     }
   }
 
+  socket.onerror = (error) => {
+    console.error('WebSocket error:', error)
+  }
+
   async function handleStartSession(data: any) {
     const { botId, userId } = data
+    console.log('Starting session for bot:', botId, 'user:', userId)
     
     try {
       // Get bot configuration
@@ -124,6 +130,7 @@ serve(async (req) => {
         .single()
 
       if (botError || !bot) {
+        console.error('Bot not found:', botError)
         throw new Error('Bot not found or access denied')
       }
 
@@ -135,6 +142,8 @@ serve(async (req) => {
         startTime: new Date().toISOString()
       }
 
+      console.log('Bot config loaded:', bot.name)
+
       // Initialize Deepgram streaming STT
       initializeDeepgramStreaming()
 
@@ -145,8 +154,9 @@ serve(async (req) => {
       }))
 
     } catch (error) {
+      console.error('Session start error:', error)
       socket.send(JSON.stringify({
-        type: 'error',
+        type: 'session_error',
         message: `Failed to start session: ${error.message}`
       }))
     }
@@ -276,20 +286,11 @@ serve(async (req) => {
         timestamp: new Date().toISOString()
       }))
 
-      // Generate AI response in parallel with context
-      const systemPrompt = `You are ${botConfig.name}. ${botConfig.personality || 'You are a helpful AI assistant.'} 
-
-Key instructions:
-- Keep responses conversational and concise for voice interaction (1-2 sentences)
-- Be natural and engaging
-- If user asks about meetings, calendar, or tasks, acknowledge you can help with that
-- Respond immediately and naturally
-
-Conversation context: ${conversationHistory.slice(-5).map(msg => `${msg.role}: ${msg.content}`).join('\n')}`
+      // Generate AI response
+      const systemPrompt = `You are ${botConfig.name}. ${botConfig.personality || 'You are a helpful AI assistant.'} Keep responses conversational and concise for voice interaction (1-2 sentences).`
       
       console.log('Sending request to Gemini...')
       
-      // Use Gemini API for fast response
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: {
@@ -298,26 +299,24 @@ Conversation context: ${conversationHistory.slice(-5).map(msg => `${msg.role}: $
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `Context: ${systemPrompt}\n\nUser: ${transcript}\n\nAssistant:`
+              text: `${systemPrompt}\n\nUser: ${transcript}\n\nAssistant:`
             }]
           }],
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 100, // Keep responses short for voice
+            maxOutputTokens: 100,
             topP: 0.9,
           },
         }),
       })
 
       if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Gemini API error:', response.status, errorText)
         throw new Error(`Gemini API error: ${response.status}`)
       }
 
       const result = await response.json()
       const aiResponse = result.candidates?.[0]?.content?.parts?.[0]?.text || 
-        "I apologize, but I'm having trouble generating a response right now."
+        "I'm having trouble responding right now."
 
       console.log('AI Response generated:', aiResponse)
 
@@ -335,7 +334,7 @@ Conversation context: ${conversationHistory.slice(-5).map(msg => `${msg.role}: $
         timestamp: new Date().toISOString()
       }))
 
-      // Generate speech immediately if auto-speak is enabled
+      // Generate speech if auto-speak is enabled
       if (botConfig.auto_speak) {
         console.log('Starting TTS generation...')
         await generateSpeech(aiResponse)
@@ -354,9 +353,8 @@ Conversation context: ${conversationHistory.slice(-5).map(msg => `${msg.role}: $
 
   async function generateSpeech(text: string) {
     try {
-      console.log('Generating speech for:', text.substring(0, 50) + '...')
+      console.log('Generating speech...')
       
-      // Use Deepgram TTS for high-quality speech
       const response = await fetch('https://api.deepgram.com/v1/speak?model=aura-asteria-en', {
         method: 'POST',
         headers: {
@@ -369,20 +367,16 @@ Conversation context: ${conversationHistory.slice(-5).map(msg => `${msg.role}: $
       })
 
       if (!response.ok) {
-        const errorText = await response.text()
-        console.error('Deepgram TTS error:', response.status, errorText)
-        throw new Error(`Deepgram TTS API error: ${response.status}`)
+        throw new Error(`Deepgram TTS error: ${response.status}`)
       }
 
-      // Get audio as array buffer and convert to base64
       const arrayBuffer = await response.arrayBuffer()
       const base64Audio = btoa(
         String.fromCharCode(...new Uint8Array(arrayBuffer))
       )
 
-      console.log('TTS audio generated, size:', arrayBuffer.byteLength)
+      console.log('TTS audio generated')
 
-      // Send audio to client for immediate playback
       socket.send(JSON.stringify({
         type: 'audio_response',
         audio: base64Audio,
@@ -400,6 +394,7 @@ Conversation context: ${conversationHistory.slice(-5).map(msg => `${msg.role}: $
   }
 
   async function handleStopSession() {
+    console.log('Stopping session...')
     isListening = false
     
     if (deepgramSocket) {
@@ -417,6 +412,7 @@ Conversation context: ${conversationHistory.slice(-5).map(msg => `${msg.role}: $
             bot_id: currentSession.botId,
             messages: conversationHistory
           })
+        console.log('Conversation saved')
       } catch (error) {
         console.error('Failed to save conversation:', error)
       }
