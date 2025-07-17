@@ -130,10 +130,8 @@ export function RealtimeVoiceChat({
 
       mediaStreamRef.current = stream;
 
-      // Connect to realtime voice WebSocket with proper URL
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/functions/v1/realtime-voice`;
+      // Connect to realtime voice WebSocket with correct Supabase URL
+      const wsUrl = `wss://nlxpyaeufqabcyimlohn.supabase.co/functions/v1/realtime-voice`;
       
       voiceDebugger.log('info', 'Attempting WebSocket connection', { url: wsUrl });
       console.log('Connecting to WebSocket:', wsUrl);
