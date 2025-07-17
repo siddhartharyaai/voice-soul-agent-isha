@@ -15,22 +15,26 @@ import { cn } from '@/lib/utils';
 import { useConversations } from '@/hooks/useConversations';
 
 interface SidebarProps {
-  isOpen: boolean;
-  onToggle: () => void;
-  currentConversationId?: string;
-  onSelectConversation: (id: string) => void;
+  conversations: any[];
   onNewConversation: () => void;
+  onSelectConversation: (id: string) => void;
+  onDeleteConversation: (id: string) => void;
+  onExportHistory: () => void;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 export function Sidebar({ 
-  isOpen, 
-  onToggle, 
-  currentConversationId, 
-  onSelectConversation, 
-  onNewConversation 
+  conversations,
+  onNewConversation,
+  onSelectConversation,
+  onDeleteConversation,
+  onExportHistory,
+  isCollapsed,
+  onToggleCollapse
 }: SidebarProps) {
-  const { conversations, deleteConversation } = useConversations();
 
+  
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
@@ -66,48 +70,34 @@ export function Sidebar({
   };
 
   return (
-    <>
-      {/* Mobile overlay */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-            onClick={onToggle}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Sidebar */}
-      <motion.div
-        initial={false}
-        animate={{ 
-          x: isOpen ? 0 : '-100%',
-          width: isOpen ? '320px' : '0px'
-        }}
-        transition={{ duration: 0.3, ease: 'easeInOut' }}
-        className={cn(
-          "fixed left-0 top-0 h-full bg-panel border-r border-border z-50",
-          "lg:relative lg:translate-x-0",
-          "flex flex-col overflow-hidden"
-        )}
-      >
-        {/* Header */}
-        <div className="p-4 border-b border-border bg-background/50 backdrop-blur-sm">
-          <div className="flex items-center justify-between mb-4">
+    <motion.div
+      initial={false}
+      animate={{ 
+        width: isCollapsed ? '64px' : '320px'
+      }}
+      transition={{ duration: 0.3, ease: 'easeInOut' }}
+      className={cn(
+        "h-full bg-panel border-r border-border z-50 flex flex-col overflow-hidden",
+        "hidden lg:flex" // Hidden on mobile, shown on desktop
+      )}
+    >
+      {/* Header */}
+      <div className="p-4 border-b border-border bg-background/50 backdrop-blur-sm">
+        <div className="flex items-center justify-between mb-4">
+          {!isCollapsed && (
             <h2 className="text-lg font-semibold text-foreground">Chat History</h2>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onToggle}
-              className="lg:hidden"
-            >
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
-          
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onToggleCollapse}
+            className="shrink-0"
+          >
+            {isCollapsed ? <Menu className="w-4 h-4" /> : <X className="w-4 h-4" />}
+          </Button>
+        </div>
+        
+        {!isCollapsed && (
           <Button
             onClick={onNewConversation}
             className="w-full justify-start gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
@@ -115,25 +105,40 @@ export function Sidebar({
             <Plus className="w-4 h-4" />
             New Conversation
           </Button>
-        </div>
+        )}
+        
+        {isCollapsed && (
+          <Button
+            onClick={onNewConversation}
+            variant="ghost"
+            size="sm"
+            className="w-full h-10 p-0"
+          >
+            <Plus className="w-4 h-4" />
+          </Button>
+        )}
+      </div>
 
-        {/* Conversation List */}
-        <ScrollArea className="flex-1 p-2">
-          <div className="space-y-2">
-            {conversations.map((conversation) => (
-              <motion.div
-                key={conversation.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className={cn(
-                  "group relative p-3 rounded-lg cursor-pointer transition-all duration-200",
-                  "hover:bg-muted/50 hover:shadow-sm",
-                  currentConversationId === conversation.id 
-                    ? "bg-primary/10 border border-primary/20 shadow-sm" 
-                    : "bg-background/50"
-                )}
-                onClick={() => onSelectConversation(conversation.id)}
-              >
+      {/* Conversation List */}
+      <ScrollArea className="flex-1 p-2">
+        <div className="space-y-2">
+          {conversations.map((conversation) => (
+            <motion.div
+              key={conversation.id}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className={cn(
+                "group relative p-3 rounded-lg cursor-pointer transition-all duration-200",
+                "hover:bg-muted/50 hover:shadow-sm",
+                "bg-background/50"
+              )}
+              onClick={() => onSelectConversation(conversation.id)}
+            >
+              {isCollapsed ? (
+                <div className="flex justify-center">
+                  <MessageSquare className="w-4 h-4 text-primary" />
+                </div>
+              ) : (
                 <div className="flex items-start gap-3">
                   <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
                     <MessageSquare className="w-4 h-4" />
@@ -148,60 +153,46 @@ export function Sidebar({
                       {formatTimestamp(conversation.timestamp)}
                     </div>
                   </div>
-                </div>
 
-                {/* Action buttons */}
-                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      exportConversation(conversation.id);
-                    }}
-                    className="h-6 w-6 p-0 hover:bg-muted"
-                  >
-                    <Download className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteConversation(conversation.id);
-                    }}
-                    className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
+                  {/* Action buttons */}
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        exportConversation(conversation.id);
+                      }}
+                      className="h-6 w-6 p-0 hover:bg-muted"
+                    >
+                      <Download className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteConversation(conversation.id);
+                      }}
+                      className="h-6 w-6 p-0 hover:bg-destructive hover:text-destructive-foreground"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
                 </div>
-              </motion.div>
-            ))}
+              )}
+            </motion.div>
+          ))}
+        </div>
+
+        {conversations.length === 0 && !isCollapsed && (
+          <div className="text-center py-8">
+            <MessageSquare className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
+            <p className="text-muted-foreground">No conversations yet</p>
+            <p className="text-sm text-muted-foreground/70">Start a new conversation to begin</p>
           </div>
-
-          {conversations.length === 0 && (
-            <div className="text-center py-8">
-              <MessageSquare className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-              <p className="text-muted-foreground">No conversations yet</p>
-              <p className="text-sm text-muted-foreground/70">Start a new conversation to begin</p>
-            </div>
-          )}
-        </ScrollArea>
-      </motion.div>
-
-      {/* Mobile toggle button */}
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={onToggle}
-        className={cn(
-          "fixed top-4 left-4 z-40 lg:hidden",
-          "bg-background/80 backdrop-blur-sm border border-border",
-          isOpen && "opacity-0 pointer-events-none"
         )}
-      >
-        <Menu className="w-4 h-4" />
-      </Button>
-    </>
+      </ScrollArea>
+    </motion.div>
   );
 }

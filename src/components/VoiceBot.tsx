@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { VoiceVisualization } from './VoiceVisualization';
 import { ChatBubble } from './ChatBubble';
-import { Sidebar } from './Sidebar';
+
 import { SettingsPanel } from './SettingsPanel';
 import { APIKeyModal } from './APIKeyModal';
 import { Message } from '@/hooks/useConversations';
@@ -30,16 +30,19 @@ interface VoiceBotProps {
   messages: Message[];
   onAddMessage: (message: Omit<Message, 'id' | 'timestamp'>) => Message;
   onSaveConversation: (messages: Message[]) => void;
+  activeBot?: any;
+  onUpdateBot?: (botId: string, updates: any) => Promise<any>;
+  mcpServers?: any[];
 }
 
-export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConversation }: VoiceBotProps) {
+export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConversation, activeBot, onUpdateBot, mcpServers }: VoiceBotProps) {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [inputMode, setInputMode] = useState<'voice' | 'text'>('voice');
   const [isConnecting, setIsConnecting] = useState(false);
   const [voiceSession, setVoiceSession] = useState<any>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [apiKeyModal, setApiKeyModal] = useState<{ isOpen: boolean; service: 'gemini' | 'deepgram' | 'perplexity' | 'google' | null }>({ isOpen: false, service: null });
   const [textInput, setTextInput] = useState('');
@@ -277,15 +280,6 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
     }
   };
 
-  const handleSelectConversation = (id: string) => {
-    setCurrentConversationId(id);
-    setSidebarOpen(false);
-  };
-
-  const handleNewConversation = () => {
-    setCurrentConversationId(undefined);
-    setSidebarOpen(false);
-  };
 
   const handleSaveAPIKey = async (service: string, apiKey: string) => {
     // TODO: Implement API key saving to backend
@@ -300,19 +294,8 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
   }, [messages]);
 
   return (
-    <div className="h-screen bg-background flex">
-      {/* Sidebar */}
-      <Sidebar
-        isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen(!sidebarOpen)}
-        currentConversationId={currentConversationId}
-        onSelectConversation={handleSelectConversation}
-        onNewConversation={handleNewConversation}
-      />
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
+    <div className="h-screen bg-background flex flex-col">{/* Main Content */}
+      <div className="flex-1 flex flex-col min-w-0">{/* Header */}
         <div className="h-16 border-b border-border bg-background/80 backdrop-blur-sm flex items-center justify-between px-4">
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-semibold text-foreground">{botName}</h1>

@@ -1,22 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { VoiceBot } from '@/components/VoiceBot';
-import { ChatHistory } from '@/components/ChatHistory';
-import { WorkflowPanel } from '@/components/WorkflowPanel';
-import { SettingsPanel } from '@/components/SettingsPanel';
+import { Sidebar } from '@/components/Sidebar';
 import { useAuth } from '@/hooks/useAuth';
 import { useBots } from '@/hooks/useBots';
 import { useConversations } from '@/hooks/useConversations';
-import { Button } from '@/components/ui/button';
-import { LogOut } from 'lucide-react';
+import { useMCPServers } from '@/hooks/useMCPServers';
 
 export default function VoiceApp() {
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isWorkflowOpen, setIsWorkflowOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   
-  const { user, loading: authLoading, signOut } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { activeBot, updateBot, loading: botsLoading } = useBots();
-  const { currentMessages, addMessage, saveConversation, exportHistory, clearCurrentMessages } = useConversations(activeBot?.id);
+  const { currentMessages, addMessage, saveConversation, exportHistory, clearCurrentMessages, conversations } = useConversations(activeBot?.id);
+  const { mcpServers } = useMCPServers();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -25,22 +23,17 @@ export default function VoiceApp() {
     }
   }, [user, authLoading, navigate]);
 
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-      navigate('/auth');
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
-  };
-
   if (authLoading || botsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background/95 to-primary/5">
-        <div className="text-center space-y-4">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="text-center space-y-4"
+        >
           <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto" />
           <p className="text-muted-foreground">Loading your assistant...</p>
-        </div>
+        </motion.div>
       </div>
     );
   }
@@ -50,70 +43,36 @@ export default function VoiceApp() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background/95 to-primary/5">
-      <div className="container mx-auto p-4 h-screen flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
-              {activeBot.name} Voice Assistant
-            </h1>
-            <div className="text-sm text-muted-foreground">
-              Welcome, {user.email}
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={exportHistory}
-              className="hidden sm:flex"
-            >
-              Export History
-            </Button>
-            <WorkflowPanel 
-              isOpen={isWorkflowOpen}
-              onToggle={() => setIsWorkflowOpen(!isWorkflowOpen)}
-            />
-            <SettingsPanel 
-              isOpen={isSettingsOpen}
-              onToggle={() => setIsSettingsOpen(!isSettingsOpen)}
-              activeBot={activeBot}
-              onUpdateBot={updateBot}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSignOut}
-              className="flex items-center gap-2"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Sign Out</span>
-            </Button>
-          </div>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-background via-background/95 to-primary/5 flex w-full">
+      {/* Sidebar */}
+      <Sidebar 
+        conversations={conversations}
+        onNewConversation={clearCurrentMessages}
+        onSelectConversation={(id) => {
+          // TODO: Load conversation by ID
+          console.log('Loading conversation:', id);
+        }}
+        onDeleteConversation={(id) => {
+          // TODO: Delete conversation by ID
+          console.log('Deleting conversation:', id);
+        }}
+        onExportHistory={exportHistory}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
 
-        {/* Main Content */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-0">
-          {/* Voice Bot Section */}
-          <div className="lg:col-span-2 flex flex-col">
-            <VoiceBot 
-              botName={activeBot.name}
-              botId={activeBot.id}
-              messages={currentMessages}
-              onAddMessage={addMessage}
-              onSaveConversation={saveConversation}
-            />
-          </div>
-
-          {/* Chat History Section */}
-          <div className="flex flex-col">
-            <ChatHistory 
-              messages={currentMessages}
-              onClearMessages={clearCurrentMessages}
-            />
-          </div>
-        </div>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-h-screen">
+        <VoiceBot 
+          botName={activeBot.name}
+          botId={activeBot.id}
+          messages={currentMessages}
+          onAddMessage={addMessage}
+          onSaveConversation={saveConversation}
+          activeBot={activeBot}
+          onUpdateBot={updateBot}
+          mcpServers={mcpServers}
+        />
       </div>
     </div>
   );
