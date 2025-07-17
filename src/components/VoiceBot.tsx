@@ -24,6 +24,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useAPIKeys } from '@/hooks/useAPIKeys';
 import { cn } from '@/lib/utils';
+import { Logger } from '@/utils/logger';
 
 interface VoiceBotProps {
   botName: string;
@@ -58,10 +59,15 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
   const audioContextRef = useRef<AudioContext | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
-  // Use production backend URL or fallback to localhost
-  const backendUrl = import.meta.env.PROD 
-    ? 'https://your-backend-url.onrender.com' 
-    : 'http://localhost:8000';
+  // Enhanced backend URL detection with better fallback
+  const backendUrl = (() => {
+    // Check if backend is accessible locally
+    if (import.meta.env.DEV) {
+      return 'http://localhost:8000';
+    }
+    // Production deployment URL (customize for your deployment)
+    return 'https://your-backend-url.onrender.com';
+  })();
 
   useEffect(() => {
     return () => {
@@ -79,34 +85,74 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
   }, []);
 
   const startVoiceSession = async () => {
-    if (!user || !botId) return;
+    if (!user || !botId) {
+      Logger.error('Voice session start failed: Missing user or botId', { user: !!user, botId });
+      return;
+    }
     
+    Logger.voice('Starting voice session', { botId, userId: user.id });
     setIsConnecting(true);
     
     try {
+      // Check backend connectivity first
+      Logger.debug('Checking backend connectivity', { url: backendUrl });
+      
+      const healthCheck = await fetch(`${backendUrl}/health`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (!healthCheck.ok) {
+        throw new Error(`Backend not responding (${healthCheck.status}). Please start the backend server with: cd backend && python start_backend.py`);
+      }
+      
+      Logger.info('Backend health check passed');
+      
       // Request microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      Logger.debug('Requesting microphone access');
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          sampleRate: 24000,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      
+      Logger.voice('Microphone access granted');
       
       // Start voice session with backend
       const response = await fetch(`${backendUrl}/api/voice-session/start`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(user as any).access_token || 'demo'}`
+        },
         body: JSON.stringify({
           user_id: user.id,
           bot_id: botId
         })
       });
 
-      if (!response.ok) throw new Error('Failed to start voice session');
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(`Voice session start failed: ${response.status} - ${errorData}`);
+      }
       
       const sessionData = await response.json();
+      Logger.voice('Voice session created', { sessionId: sessionData.session_id });
       setVoiceSession(sessionData);
 
-      // Connect WebSocket
-      const ws = new WebSocket(`ws://localhost:8000/ws/${sessionData.session_id}`);
+      // Connect WebSocket with enhanced error handling
+      const wsUrl = `ws://localhost:8000/ws/${sessionData.session_id}`;
+      Logger.debug('Connecting WebSocket', { url: wsUrl });
+      
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
+        Logger.voice('WebSocket connected');
         setIsListening(true);
         toast({
           title: "Voice session started",
@@ -115,24 +161,40 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
       };
 
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'response') {
-          // Add bot response to messages
-          onAddMessage({
-            type: 'bot',
-            content: data.text,
-          });
+        try {
+          const data = JSON.parse(event.data);
+          Logger.voice('WebSocket message received', { type: data.type });
           
-          // Play audio if available
-          if (data.audio && !isMuted) {
-            playAudioResponse(data.audio);
+          if (data.type === 'response') {
+            // Add bot response to messages
+            onAddMessage({
+              type: 'bot',
+              content: data.text,
+            });
+            
+            // Play audio if available
+            if (data.audio && !isMuted) {
+              Logger.voice('Playing audio response');
+              playAudioResponse(data.audio);
+            }
+          } else if (data.type === 'transcription') {
+            Logger.voice('Transcription received', { text: data.text });
+            setTranscription(data.text);
+          } else if (data.type === 'error') {
+            Logger.error('WebSocket error message', data);
+            toast({
+              variant: "destructive",
+              title: "Voice error",
+              description: data.error || "An error occurred during voice processing",
+            });
           }
+        } catch (error) {
+          Logger.error('Error parsing WebSocket message', error);
         }
       };
 
       ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        Logger.error('WebSocket error', error);
         toast({
           variant: "destructive",
           title: "Connection error",
@@ -140,7 +202,8 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
         });
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
+        Logger.voice('WebSocket closed', { code: event.code, reason: event.reason });
         setIsListening(false);
         setIsSpeaking(false);
       };
@@ -149,11 +212,23 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
       setupAudioRecording(stream);
       
     } catch (error: any) {
-      console.error('Error starting voice session:', error);
+      Logger.error('Voice session start error', error);
+      
+      let errorMessage = error.message || "Failed to start voice session";
+      
+      // Enhanced error messages for common issues
+      if (error.message?.includes('Backend not responding')) {
+        errorMessage = "Backend server not running. Please start it with: cd backend && python start_backend.py";
+      } else if (error.message?.includes('getUserMedia')) {
+        errorMessage = "Microphone access denied. Please allow microphone access and try again.";
+      } else if (error.message?.includes('NetworkError')) {
+        errorMessage = "Network error. Please check your internet connection and backend server.";
+      }
+      
       toast({
         variant: "destructive",
         title: "Voice session failed",
-        description: error.message || "Failed to start voice session",
+        description: errorMessage,
       });
     } finally {
       setIsConnecting(false);
