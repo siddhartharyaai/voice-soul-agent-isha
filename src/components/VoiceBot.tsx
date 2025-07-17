@@ -241,8 +241,13 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
         {/* Bot Avatar/Visualization */}
         <div className="relative mx-auto">
           <VoiceVisualization 
-            isActive={isListening || isSpeaking}
-            mode={isListening ? 'listening' : isSpeaking ? 'speaking' : 'idle'}
+            isListening={isListening}
+            isSpeaking={isSpeaking}
+            isMuted={isMuted}
+            isConnected={!isConnecting}
+            onToggleListening={handleVoiceToggle}
+            onToggleMute={handleMuteToggle}
+            onStop={() => setIsListening(false)}
           />
         </div>
 

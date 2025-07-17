@@ -141,28 +141,6 @@ class MCPProtocolHandler:
             ]
         )
         
-        # Weather MCP Server
-        weather_server = MCPServer(
-            name="openweather",
-            url="builtin://weather",
-            description="Weather information using OpenWeatherMap",
-            tools=[
-                {
-                    "name": "get_weather",
-                    "description": "Get current weather for a location",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "location": {"type": "string", "description": "City name or coordinates"},
-                            "units": {"type": "string", "enum": ["metric", "imperial", "kelvin"], "default": "metric"}
-                        },
-                        "required": ["location"]
-                    }
-                },
-                {
-                    "name": "get_weather_forecast",
-                    "description": "Get weather forecast for a location",
-                    "parameters": {
                         "type": "object",
                         "properties": {
                             "location": {"type": "string", "description": "City name or coordinates"},
@@ -201,7 +179,6 @@ class MCPProtocolHandler:
         self.servers["google_calendar"] = calendar_server
         self.servers["gmail"] = gmail_server
         self.servers["perplexity_search"] = perplexity_server
-        self.servers["openweather"] = weather_server
         self.servers["activepieces_workflow"] = activepieces_server
         
         # Build tool registry
@@ -349,10 +326,6 @@ class MCPProtocolHandler:
             return await self._handle_read_emails(arguments)
         elif tool_name == "search_web":
             return await self._handle_perplexity_search(arguments)
-        elif tool_name == "get_weather":
-            return await self._handle_get_weather(arguments)
-        elif tool_name == "get_weather_forecast":
-            return await self._handle_get_weather_forecast(arguments)
         else:
             return MCPToolResult(
                 result="",
@@ -449,21 +422,6 @@ class MCPProtocolHandler:
         except Exception as e:
             return MCPToolResult(result="", error=str(e))
     
-    async def _handle_get_weather(self, arguments: Dict[str, Any]) -> MCPToolResult:
-        """Handle OpenWeatherMap current weather"""
-        from .tools.weather_tools import weather_tools
-        try:
-            result = await weather_tools.get_current_weather(arguments)
-            return MCPToolResult(result=result)
-        except Exception as e:
-            return MCPToolResult(result="", error=str(e))
-    
-    async def _handle_get_weather_forecast(self, arguments: Dict[str, Any]) -> MCPToolResult:
-        """Handle OpenWeatherMap weather forecast"""
-        from .tools.weather_tools import weather_tools
-        try:
-            result = await weather_tools.get_weather_forecast(arguments)
-            return MCPToolResult(result=result)
         except Exception as e:
             return MCPToolResult(result="", error=str(e))
 

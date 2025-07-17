@@ -9,7 +9,7 @@ A comprehensive FastAPI backend for the Isha voice assistant, integrating LiveKi
 - **Text-to-Speech**: Deepgram 'aura-2-thalia-en' voice for natural responses
 - **LLM Integration**: Google Gemini with function calling capabilities
 - **MCP Protocol**: Secure tool execution with approval workflows
-- **Built-in Tools**: Google Calendar, Gmail, Perplexity Search, Weather, and more
+- **Built-in Tools**: Google Calendar, Gmail, Perplexity Search, and more
 - **Custom MCP Servers**: Support for user-defined external tools
 - **Supabase Integration**: User authentication and data persistence
 
@@ -44,7 +44,6 @@ LIVEKIT_API_SECRET=your_livekit_api_secret
 LIVEKIT_WS_URL=ws://localhost:7880
 
 # Optional (for MCP tools)
-OPENWEATHER_API_KEY=your_openweather_api_key
 PERPLEXITY_API_KEY=your_perplexity_api_key
 ```
 
@@ -101,9 +100,6 @@ The backend supports the Model Context Protocol (MCP) for secure tool execution:
 3. **Perplexity Search**
    - Web search with AI
 
-4. **Weather (OpenWeatherMap)**
-   - Current weather
-   - Weather forecast
 
 5. **Custom MCP Servers**
    - User-defined external tools
@@ -193,7 +189,6 @@ Required for production:
 Optional but recommended:
 - `LIVEKIT_API_KEY`
 - `LIVEKIT_API_SECRET`
-- `OPENWEATHER_API_KEY`
 - `PERPLEXITY_API_KEY`
 
 ## Troubleshooting

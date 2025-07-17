@@ -37,8 +37,7 @@ PyGithub==2.1.1
 spotipy==2.23.0
 requests==2.31.0
 
-# Weather and news
-openweathermap-python-api==1.1.0
+# News
 newsapi-python==0.2.7
 
 # Security and encryption

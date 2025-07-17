@@ -26,7 +26,8 @@ export default {
 				foreground: 'hsl(var(--foreground))',
 				primary: {
 					DEFAULT: 'hsl(var(--primary))',
-					foreground: 'hsl(var(--primary-foreground))'
+					foreground: 'hsl(var(--primary-foreground))',
+					glow: 'hsl(var(--primary-glow))'
 				},
 				secondary: {
 					DEFAULT: 'hsl(var(--secondary))',
@@ -61,6 +62,11 @@ export default {
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
+				},
+				voice: {
+					speaking: 'hsl(var(--speaking))',
+					listening: 'hsl(var(--listening))',
+					idle: 'hsl(var(--idle))'
 				}
 			},
 			borderRadius: {
@@ -84,11 +90,64 @@ export default {
 					to: {
 						height: '0'
 					}
+				},
+				'voice-pulse': {
+					'0%, 100%': {
+						transform: 'scale(1)',
+						opacity: '1'
+					},
+					'50%': {
+						transform: 'scale(1.05)',
+						opacity: '0.9'
+					}
+				},
+				'speaking-pulse': {
+					'0%, 100%': {
+						transform: 'scale(1)',
+						boxShadow: '0 0 0 0 hsl(var(--speaking) / 0.4)'
+					},
+					'50%': {
+						transform: 'scale(1.1)',
+						boxShadow: '0 0 0 20px hsl(var(--speaking) / 0)'
+					}
+				},
+				'listening-pulse': {
+					'0%, 100%': {
+						transform: 'scale(1)',
+						boxShadow: '0 0 0 0 hsl(var(--listening) / 0.4)'
+					},
+					'50%': {
+						transform: 'scale(1.08)',
+						boxShadow: '0 0 0 15px hsl(var(--listening) / 0)'
+					}
+				},
+				'fade-in-up': {
+					from: {
+						opacity: '0',
+						transform: 'translateY(20px)'
+					},
+					to: {
+						opacity: '1',
+						transform: 'translateY(0)'
+					}
+				},
+				'glow': {
+					from: {
+						boxShadow: '0 0 20px hsl(var(--primary) / 0.2)'
+					},
+					to: {
+						boxShadow: '0 0 40px hsl(var(--primary) / 0.4)'
+					}
 				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
-				'accordion-up': 'accordion-up 0.2s ease-out'
+				'accordion-up': 'accordion-up 0.2s ease-out',
+				'voice-pulse': 'voice-pulse 2s ease-in-out infinite',
+				'speaking-pulse': 'speaking-pulse 1.5s ease-in-out infinite',
+				'listening-pulse': 'listening-pulse 1.8s ease-in-out infinite',
+				'fade-in-up': 'fade-in-up 0.5s ease-out',
+				'glow': 'glow 2s ease-in-out infinite alternate'
 			}
 		}
 	},

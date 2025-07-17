@@ -53,7 +53,6 @@ class Settings:
         # Optional third-party APIs
         self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Fallback LLM
         self.PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
-        self.OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
         self.NEWS_API_KEY = os.getenv("NEWS_API_KEY")
         
         # Google OAuth (optional - will prompt user if needed)
@@ -89,7 +88,6 @@ def validate_environment() -> ValidationResult:
     optional_keys = [
         ("ENCRYPTION_KEY", settings.ENCRYPTION_KEY),
         ("PERPLEXITY_API_KEY", settings.PERPLEXITY_API_KEY),
-        ("OPENWEATHER_API_KEY", settings.OPENWEATHER_API_KEY),
         ("GOOGLE_CLIENT_ID", settings.GOOGLE_CLIENT_ID),
         ("GOOGLE_CLIENT_SECRET", settings.GOOGLE_CLIENT_SECRET),
     ]
@@ -120,9 +118,6 @@ def validate_environment() -> ValidationResult:
         recommendations.append("🔍 Add PERPLEXITY_API_KEY for web search functionality")
         recommendations.append("   Get free key at: https://www.perplexity.ai/settings/api")
     
-    if "OPENWEATHER_API_KEY" in missing_optional:
-        recommendations.append("🌤️  Add OPENWEATHER_API_KEY for weather information")
-        recommendations.append("   Get free key at: https://openweathermap.org/api")
     
     if "GOOGLE_CLIENT_ID" in missing_optional or "GOOGLE_CLIENT_SECRET" in missing_optional:
         recommendations.append("📧 Add Google OAuth credentials for Calendar/Gmail integration")

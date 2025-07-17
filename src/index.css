@@ -9,106 +9,69 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* Voice AI Color Palette */
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
+    /* Dark Theme - Isha Voice AI */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
 
-    --card: 240 7% 8%;
-    --card-foreground: 0 0% 98%;
+    --card: 0 0% 10.2%;
+    --card-foreground: 0 0% 100%;
 
-    --popover: 240 7% 8%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 0 0% 10.2%;
+    --popover-foreground: 0 0% 100%;
 
-    /* Voice AI Primary Colors */
-    --primary: 240 100% 67%;
-    --primary-foreground: 0 0% 98%;
-    --primary-glow: 240 100% 75%;
+    /* Purple AI Theme */
+    --primary: 271 100% 71%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 271 100% 80%;
     
-    --secondary: 240 4% 16%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 0 0% 10.2%;
+    --secondary-foreground: 0 0% 100%;
 
-    --muted: 240 5% 12%;
-    --muted-foreground: 240 5% 64%;
+    --muted: 0 0% 6.9%;
+    --muted-foreground: 0 0% 63.9%;
 
-    --accent: 270 100% 67%;
-    --accent-foreground: 0 0% 98%;
+    --accent: 271 100% 71%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 240 6% 20%;
-    --input: 240 6% 20%;
-    --ring: 240 100% 67%;
+    --border: 0 0% 15.7%;
+    --input: 0 0% 15.7%;
+    --ring: 271 100% 71%;
 
-    /* Voice AI Special Colors */
-    --speaking: 150 100% 50%;
-    --listening: 50 100% 50%;
-    --idle: 240 5% 64%;
+    /* Voice States */
+    --speaking: 120 100% 50%;
+    --listening: 45 100% 50%;
+    --idle: 0 0% 63.9%;
     
-    /* Gradients */
-    --gradient-voice: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
-    --gradient-card: linear-gradient(145deg, hsl(var(--card)), hsl(240 8% 10%));
+    /* Modern Gradients */
+    --gradient-voice: linear-gradient(135deg, hsl(var(--primary)), hsl(271 100% 60%));
+    --gradient-card: linear-gradient(145deg, hsl(0 0% 6.9%), hsl(0 0% 0%));
+    --gradient-subtle: linear-gradient(180deg, hsl(0 0% 1%), hsl(0 0% 0%));
     
-    /* Shadows */
+    /* Premium Shadows */
     --shadow-voice: 0 0 40px hsl(var(--primary) / 0.3);
     --shadow-speaking: 0 0 60px hsl(var(--speaking) / 0.4);
     --shadow-listening: 0 0 60px hsl(var(--listening) / 0.4);
+    --shadow-elegant: 0 10px 30px -10px hsl(var(--primary) / 0.3);
+    --shadow-glow: 0 0 40px hsl(var(--primary-glow) / 0.4);
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Sidebar Dark */
+    --sidebar-background: 0 0% 6.9%;
+    --sidebar-foreground: 0 0% 94.9%;
+    --sidebar-primary: 271 100% 71%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 10.2%;
+    --sidebar-accent-foreground: 0 0% 94.9%;
+    --sidebar-border: 0 0% 15.7%;
+    --sidebar-ring: 271 100% 71%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Keep same dark theme */
   }
 }
 
@@ -118,12 +81,13 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+    background: linear-gradient(135deg, hsl(0 0% 0%), hsl(0 0% 1%), hsl(0 0% 0%));
   }
 }
 
 @layer utilities {
-  /* Voice AI Animations */
+  /* Modern Voice AI Animations */
   .animate-voice-pulse {
     animation: voice-pulse 2s ease-in-out infinite;
   }
@@ -144,6 +108,11 @@ All colors MUST be HSL.
     animation: scale-in 0.3s ease-out;
   }
   
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+  
+  /* Premium Gradients */
   .gradient-voice {
     background: var(--gradient-voice);
   }
@@ -152,6 +121,11 @@ All colors MUST be HSL.
     background: var(--gradient-card);
   }
   
+  .gradient-subtle {
+    background: var(--gradient-subtle);
+  }
+  
+  /* Premium Shadows */
   .shadow-voice {
     box-shadow: var(--shadow-voice);
   }
@@ -162,6 +136,30 @@ All colors MUST be HSL.
   
   .shadow-listening {
     box-shadow: var(--shadow-listening);
+  }
+  
+  .shadow-elegant {
+    box-shadow: var(--shadow-elegant);
+  }
+  
+  .shadow-glow {
+    box-shadow: var(--shadow-glow);
+  }
+  
+  /* Glass Effect */
+  .glass {
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  
+  /* Chat Bubbles */
+  .chat-bubble-user {
+    @apply bg-primary text-primary-foreground rounded-2xl px-4 py-3 max-w-xs ml-auto;
+  }
+  
+  .chat-bubble-bot {
+    @apply bg-muted text-foreground rounded-2xl px-4 py-3 max-w-xs mr-auto;
   }
 }
 
@@ -217,5 +215,14 @@ All colors MUST be HSL.
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@keyframes glow {
+  from {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.2);
+  }
+  to {
+    box-shadow: 0 0 40px hsl(var(--primary) / 0.4);
   }
 }
