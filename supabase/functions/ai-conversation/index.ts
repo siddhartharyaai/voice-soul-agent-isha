@@ -33,9 +33,17 @@ serve(async (req) => {
       .eq('user_id', userId)
       .single()
 
-    if (botError || !bot) {
+    if (botError) {
+      console.error('Bot query error:', botError)
+      throw new Error(`Bot query failed: ${botError.message}`)
+    }
+    
+    if (!bot) {
+      console.error('Bot not found for:', { botId, userId })
       throw new Error('Bot not found or access denied')
     }
+    
+    console.log('Bot found:', bot.name)
 
     // Prepare conversation context
     const systemPrompt = `You are ${bot.name}. ${bot.personality || 'You are a helpful AI assistant.'}`

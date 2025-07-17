@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { VoiceBot } from '@/components/VoiceBot';
+import { RealtimeVoiceChat } from '@/components/RealtimeVoiceChat';
 import { Sidebar } from '@/components/Sidebar';
 import { useAuth } from '@/hooks/useAuth';
 import { useBots } from '@/hooks/useBots';
@@ -64,7 +64,7 @@ export default function VoiceApp() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-h-screen">
-        <VoiceBot 
+        <RealtimeVoiceChat 
           botName={activeBot.name}
           botId={activeBot.id}
           messages={currentMessages}
@@ -72,7 +72,6 @@ export default function VoiceApp() {
           onSaveConversation={saveConversation}
           activeBot={activeBot}
           onUpdateBot={updateBot as any}
-          mcpServers={mcpServers}
         />
       </div>
     </div>
