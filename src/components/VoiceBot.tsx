@@ -59,15 +59,8 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
   const audioContextRef = useRef<AudioContext | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
-  // Enhanced backend URL detection with better fallback
-  const backendUrl = (() => {
-    // Check if backend is accessible locally
-    if (import.meta.env.DEV) {
-      return 'http://localhost:8000';
-    }
-    // Production deployment URL (customize for your deployment)
-    return 'https://your-backend-url.onrender.com';
-  })();
+  // Always use localhost for development - no production URL until deployed
+  const backendUrl = 'http://localhost:8000';
 
   useEffect(() => {
     return () => {

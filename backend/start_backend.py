@@ -7,6 +7,7 @@ Validates environment and starts FastAPI server with proper error handling
 import sys
 import os
 import logging
+import asyncio
 from pathlib import Path
 
 # Add backend directory to Python path
@@ -23,10 +24,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+async def load_secrets_and_validate():
+    """Load secrets from Supabase before starting"""
+    try:
+        from supabase_secrets import secrets_client
+        print("🔑 Loading API keys from Supabase...")
+        secrets = await secrets_client.load_all_secrets()
+        print(f"✅ Loaded {len(secrets)} secrets from Supabase")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not load secrets from Supabase: {e}")
+        print("   Falling back to environment variables")
+
 def main():
     """Main startup function"""
     print("🎤 Isha Voice Assistant - Production Backend")
     print("=" * 50)
+    
+    # Load secrets first
+    try:
+        asyncio.run(load_secrets_and_validate())
+    except Exception as e:
+        print(f"⚠️  Warning during secret loading: {e}")
     
     # Validate environment
     validation_result = log_environment_status()

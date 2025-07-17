@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Voice Fix Test Script - Complete diagnostic and testing tool
-Tests the entire voice pipeline from backend startup to voice session
+FINAL Voice Fix Test Script - Complete diagnostic and testing tool
+Tests everything needed for voice functionality to work properly
 """
 
 import asyncio
@@ -10,6 +10,7 @@ import sys
 import time
 import httpx
 import json
+import requests
 from pathlib import Path
 
 class VoiceFixTester:
