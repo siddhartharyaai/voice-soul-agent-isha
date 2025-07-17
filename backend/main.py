@@ -1,57 +1,92 @@
 """
-Isha Voice Assistant - FastAPI Backend
-Integrates LiveKit, Deepgram, Google Gemini, and MCP protocol
+Isha Voice Assistant - Production FastAPI Backend
+Complete implementation with real API integrations, OAuth, and MCP protocol
 """
 
 import os
 import asyncio
 import json
+import logging
 from typing import Dict, List, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
+from contextlib import asynccontextmanager
+
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, ValidationError
 import httpx
 
-# Voice processing imports
-import livekit
-from livekit import api, rtc
-import google.generativeai as genai
-from deepgram import DeepgramClient, PrerecordedOptions, LiveOptions
-import logging
+# Voice processing
+from voice_client import VoiceClient, AudioProcessor
+from mcp_protocol import MCPProtocolHandler, MCPToolResult
+from tools.google_auth import GoogleAuthManager
+from tools.encryption import EncryptionManager
+from config import Settings, validate_environment
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Isha Voice Assistant API", version="1.0.0")
+# Global instances
+settings = Settings()
+mcp_handler = MCPProtocolHandler()
+google_auth = GoogleAuthManager()
+encryption = EncryptionManager()
+security = HTTPBearer()
+
+# Active voice sessions
+voice_sessions: Dict[str, Dict] = {}
+active_websockets: Dict[str, WebSocket] = {}
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifecycle management"""
+    logger.info("🚀 Starting Isha Voice Assistant Backend")
+    
+    # Validate environment
+    validation_result = validate_environment()
+    if not validation_result.is_valid:
+        logger.error(f"❌ Environment validation failed: {validation_result.missing_keys}")
+        logger.error("Please check your .env file and ensure all required keys are set")
+        exit(1)
+    
+    logger.info("✅ Environment validation passed")
+    
+    # Initialize MCP servers
+    await mcp_handler.initialize_servers()
+    logger.info("✅ MCP servers initialized")
+    
+    yield
+    
+    # Cleanup
+    logger.info("🛑 Shutting down Isha Voice Assistant Backend")
+
+app = FastAPI(
+    title="Isha Voice Assistant API",
+    version="2.0.0",
+    description="Production voice AI assistant with MCP integrations",
+    lifespan=lifespan
+)
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Vite dev server
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://*.vercel.app",
+        "https://*.netlify.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configuration from environment variables
-LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
-LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
-LIVEKIT_WS_URL = os.getenv("LIVEKIT_WS_URL", "ws://localhost:7880")
-DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://nlxpyaeufqabcyimlohn.supabase.co")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
-
-# Initialize clients
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    
-if DEEPGRAM_API_KEY:
-    deepgram = DeepgramClient(DEEPGRAM_API_KEY)
 
 # Pydantic models
 class VoiceSessionRequest(BaseModel):
@@ -63,6 +98,7 @@ class ChatMessage(BaseModel):
     role: str
     content: str
     timestamp: Optional[datetime] = None
+    tool_calls: Optional[List[Dict]] = None
 
 class MCPServerConfig(BaseModel):
     name: str
@@ -72,35 +108,625 @@ class MCPServerConfig(BaseModel):
     approval_mode: str = "always_ask"
     description: Optional[str] = None
 
-class ToolCallRequest(BaseModel):
-    tool_name: str
-    parameters: Dict[str, Any]
+class ToolApprovalRequest(BaseModel):
+    call_id: str
+    approved: bool
     user_id: str
-    bot_id: str
 
-# In-memory storage for active sessions
-active_sessions: Dict[str, Dict] = {}
-mcp_servers: Dict[str, MCPServerConfig] = {}
+class APIKeyRequest(BaseModel):
+    service: str
+    api_key: str
+    user_id: str
 
-# Health check
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
-
-# Bot configuration endpoints
-@app.get("/api/bot/{bot_id}")
-async def get_bot_config(bot_id: str):
-    """Get bot configuration from Supabase"""
+# Authentication dependency
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Validate JWT token and return user info"""
     try:
+        # Validate with Supabase
         async with httpx.AsyncClient() as client:
             headers = {
-                "apikey": SUPABASE_ANON_KEY,
-                "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+                "apikey": settings.SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {credentials.credentials}",
                 "Content-Type": "application/json"
             }
             
             response = await client.get(
-                f"{SUPABASE_URL}/rest/v1/bots?id=eq.{bot_id}&select=*",
+                f"{settings.SUPABASE_URL}/auth/v1/user",
+                headers=headers
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise HTTPException(status_code=401, detail="Invalid token")
+                
+    except Exception as e:
+        logger.error(f"Auth validation error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication failed")
+
+# Health and status endpoints
+@app.get("/health")
+async def health_check():
+    """Comprehensive health check"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "2.0.0",
+        "services": {
+            "deepgram": bool(settings.DEEPGRAM_API_KEY),
+            "gemini": bool(settings.GEMINI_API_KEY),
+            "livekit": bool(settings.LIVEKIT_API_KEY),
+            "supabase": bool(settings.SUPABASE_URL),
+        },
+        "mcp_servers": len(mcp_handler.servers),
+        "active_sessions": len(voice_sessions)
+    }
+
+@app.get("/api/environment/validate")
+async def validate_env():
+    """Validate environment configuration"""
+    result = validate_environment()
+    return {
+        "valid": result.is_valid,
+        "missing_keys": result.missing_keys,
+        "optional_missing": result.optional_missing,
+        "recommendations": result.recommendations
+    }
+
+# Voice session management
+@app.post("/api/voice-session/start")
+async def start_voice_session(
+    request: VoiceSessionRequest,
+    user = Depends(get_current_user)
+):
+    """Start a new voice session with LiveKit"""
+    try:
+        # Get bot configuration from Supabase
+        bot_config = await get_bot_config(request.bot_id, user["id"])
+        
+        # Create LiveKit room
+        room_name = request.room_name or f"voice-{request.user_id}-{int(datetime.now().timestamp())}"
+        
+        # Initialize voice client
+        voice_client = VoiceClient(
+            livekit_url=settings.LIVEKIT_WS_URL,
+            api_key=settings.LIVEKIT_API_KEY,
+            api_secret=settings.LIVEKIT_API_SECRET
+        )
+        
+        # Generate access token
+        access_token = voice_client.generate_access_token(
+            room_name=room_name,
+            participant_identity=request.user_id,
+            participant_name=f"User-{request.user_id}"
+        )
+        
+        # Store session
+        session_id = f"{request.user_id}-{request.bot_id}-{int(datetime.now().timestamp())}"
+        voice_sessions[session_id] = {
+            "user_id": request.user_id,
+            "bot_id": request.bot_id,
+            "room_name": room_name,
+            "bot_config": bot_config,
+            "voice_client": voice_client,
+            "created_at": datetime.now(),
+            "messages": [],
+            "is_active": True
+        }
+        
+        logger.info(f"Started voice session {session_id} for user {request.user_id}")
+        
+        return {
+            "session_id": session_id,
+            "room_name": room_name,
+            "access_token": access_token,
+            "ws_url": settings.LIVEKIT_WS_URL.replace("wss://", "ws://"),
+            "bot_config": bot_config
+        }
+        
+    except Exception as e:
+        logger.error(f"Error starting voice session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/voice-session/{session_id}")
+async def end_voice_session(session_id: str, user = Depends(get_current_user)):
+    """End voice session and save conversation"""
+    try:
+        if session_id not in voice_sessions:
+            raise HTTPException(status_code=404, detail="Session not found")
+            
+        session = voice_sessions[session_id]
+        
+        # Verify user owns this session
+        if session["user_id"] != user["id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Save conversation to Supabase
+        if session["messages"]:
+            await save_conversation_to_supabase(
+                session["user_id"],
+                session["bot_id"],
+                session["messages"]
+            )
+        
+        # Cleanup voice client
+        if "voice_client" in session:
+            await session["voice_client"].disconnect()
+        
+        # Remove session
+        del voice_sessions[session_id]
+        
+        # Close WebSocket if active
+        if session_id in active_websockets:
+            await active_websockets[session_id].close()
+            del active_websockets[session_id]
+        
+        logger.info(f"Ended voice session {session_id}")
+        
+        return {"status": "session_ended", "session_id": session_id}
+        
+    except Exception as e:
+        logger.error(f"Error ending voice session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Real-time WebSocket for voice communication
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """WebSocket endpoint for real-time voice communication"""
+    await websocket.accept()
+    active_websockets[session_id] = websocket
+    
+    try:
+        if session_id not in voice_sessions:
+            await websocket.send_json({"error": "Invalid session", "code": "SESSION_NOT_FOUND"})
+            return
+            
+        session = voice_sessions[session_id]
+        logger.info(f"WebSocket connected for session {session_id}")
+        
+        # Send initial connection confirmation
+        await websocket.send_json({
+            "type": "connected",
+            "session_id": session_id,
+            "bot_name": session["bot_config"]["name"]
+        })
+        
+        while True:
+            try:
+                data = await websocket.receive_json()
+                await handle_websocket_message(websocket, session_id, data)
+                
+            except WebSocketDisconnect:
+                break
+                
+    except Exception as e:
+        logger.error(f"WebSocket error for session {session_id}: {e}")
+        await websocket.send_json({"error": str(e), "type": "error"})
+        
+    finally:
+        if session_id in active_websockets:
+            del active_websockets[session_id]
+        logger.info(f"WebSocket disconnected for session {session_id}")
+
+async def handle_websocket_message(websocket: WebSocket, session_id: str, data: Dict):
+    """Handle incoming WebSocket messages"""
+    try:
+        session = voice_sessions[session_id]
+        message_type = data.get("type")
+        
+        if message_type == "audio":
+            # Process audio with Deepgram STT
+            audio_data = data.get("audio")
+            if audio_data:
+                transcript = await process_audio_stt(audio_data)
+                
+                if transcript and transcript.strip():
+                    # Send transcription back to client
+                    await websocket.send_json({
+                        "type": "transcription",
+                        "text": transcript,
+                        "is_final": True
+                    })
+                    
+                    # Add user message
+                    user_message = ChatMessage(role="user", content=transcript)
+                    session["messages"].append(user_message.model_dump())
+                    
+                    # Generate bot response
+                    bot_response = await generate_bot_response(session, transcript)
+                    
+                    if bot_response:
+                        # Add bot message
+                        bot_message = ChatMessage(role="assistant", content=bot_response["text"])
+                        session["messages"].append(bot_message.model_dump())
+                        
+                        # Send response back
+                        response_data = {
+                            "type": "response",
+                            "text": bot_response["text"],
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        
+                        # Generate TTS audio
+                        if bot_response["text"] and not session.get("muted", False):
+                            tts_audio = await generate_tts_audio(
+                                bot_response["text"],
+                                session["bot_config"].get("voice", "aura-2-thalia-en")
+                            )
+                            if tts_audio:
+                                response_data["audio"] = tts_audio
+                        
+                        await websocket.send_json(response_data)
+        
+        elif message_type == "interrupt":
+            # Handle user interruption
+            session["is_interrupted"] = True
+            await websocket.send_json({"type": "interrupted"})
+            
+        elif message_type == "toggle_mute":
+            # Toggle audio output
+            session["muted"] = not session.get("muted", False)
+            await websocket.send_json({
+                "type": "mute_status",
+                "muted": session["muted"]
+            })
+            
+        elif message_type == "text_input":
+            # Handle text input
+            text = data.get("text", "").strip()
+            if text:
+                # Add user message
+                user_message = ChatMessage(role="user", content=text)
+                session["messages"].append(user_message.model_dump())
+                
+                # Generate bot response
+                bot_response = await generate_bot_response(session, text)
+                
+                if bot_response:
+                    # Add bot message
+                    bot_message = ChatMessage(role="assistant", content=bot_response["text"])
+                    session["messages"].append(bot_message.model_dump())
+                    
+                    await websocket.send_json({
+                        "type": "response",
+                        "text": bot_response["text"],
+                        "timestamp": datetime.now().isoformat()
+                    })
+        
+    except Exception as e:
+        logger.error(f"Error handling WebSocket message: {e}")
+        await websocket.send_json({"error": str(e), "type": "error"})
+
+# Voice processing functions
+async def process_audio_stt(audio_data: str) -> Optional[str]:
+    """Process audio with Deepgram STT"""
+    try:
+        if not settings.DEEPGRAM_API_KEY:
+            logger.warning("Deepgram API key not configured")
+            return None
+            
+        from deepgram import DeepgramClient, PrerecordedOptions
+        import base64
+        
+        # Decode base64 audio
+        audio_bytes = base64.b64decode(audio_data)
+        
+        # Initialize Deepgram client
+        deepgram = DeepgramClient(settings.DEEPGRAM_API_KEY)
+        
+        # Configure options
+        options = PrerecordedOptions(
+            model="nova-2-general",
+            language="en",
+            punctuate=True,
+            diarize=False,
+            smart_format=True
+        )
+        
+        # Process audio
+        response = deepgram.listen.prerecorded.v("1").transcribe_file(
+            {"buffer": audio_bytes, "mimetype": "audio/webm"},
+            options
+        )
+        
+        # Extract transcript
+        if response and response.results and response.results.channels:
+            alternatives = response.results.channels[0].alternatives
+            if alternatives and len(alternatives) > 0:
+                transcript = alternatives[0].transcript
+                if transcript and transcript.strip():
+                    logger.info(f"STT transcript: {transcript}")
+                    return transcript.strip()
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error in STT processing: {e}")
+        return None
+
+async def generate_tts_audio(text: str, voice: str = "aura-2-thalia-en") -> Optional[str]:
+    """Generate TTS audio with Deepgram"""
+    try:
+        if not settings.DEEPGRAM_API_KEY or not text.strip():
+            return None
+            
+        from deepgram import DeepgramClient, SpeakOptions
+        import base64
+        
+        # Initialize client
+        deepgram = DeepgramClient(settings.DEEPGRAM_API_KEY)
+        
+        # Configure options
+        options = SpeakOptions(
+            model=voice,
+            encoding="mp3",
+            container="mp3"
+        )
+        
+        # Generate audio
+        response = deepgram.speak.v("1").save(text, "temp_audio.mp3", options)
+        
+        # Read and encode audio file
+        if os.path.exists("temp_audio.mp3"):
+            with open("temp_audio.mp3", "rb") as audio_file:
+                audio_data = base64.b64encode(audio_file.read()).decode()
+            
+            # Clean up temp file
+            os.remove("temp_audio.mp3")
+            
+            return audio_data
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error in TTS generation: {e}")
+        return None
+
+async def generate_bot_response(session: Dict, user_input: str) -> Optional[Dict]:
+    """Generate bot response using Gemini with function calling"""
+    try:
+        if not settings.GEMINI_API_KEY:
+            return {"text": "I'm sorry, but my language model is not configured properly."}
+            
+        import google.generativeai as genai
+        
+        # Configure Gemini
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        
+        # Get available tools
+        available_tools = mcp_handler.get_available_tools()
+        
+        # Build conversation history
+        messages = session["messages"][-10:]  # Last 10 messages for context
+        
+        # Create system prompt
+        bot_config = session["bot_config"]
+        system_prompt = f"""You are {bot_config['name']}, an AI voice assistant.
+        
+Personality: {bot_config.get('personality', 'I am helpful, friendly, and concise.')}
+
+You have access to these tools through MCP servers:
+{', '.join([tool['name'] for tool in available_tools])}
+
+Guidelines:
+- Be conversational and natural
+- Use tools when appropriate to help the user
+- Keep responses concise for voice interaction
+- If a tool requires approval, explain what you want to do first
+
+Current conversation context: {len(messages)} previous messages"""
+        
+        # Initialize model with tools
+        model = genai.GenerativeModel(
+            model_name=bot_config.get("model", "gemini-1.5-flash"),
+            tools=available_tools if available_tools else None
+        )
+        
+        # Build conversation for Gemini
+        conversation = [{"role": "user", "parts": [system_prompt]}]
+        
+        for msg in messages:
+            role = "user" if msg["role"] == "user" else "model"
+            conversation.append({
+                "role": role,
+                "parts": [msg["content"]]
+            })
+        
+        # Add current user input
+        conversation.append({"role": "user", "parts": [user_input]})
+        
+        # Generate response
+        chat = model.start_chat(history=conversation[:-1])
+        response = chat.send_message(conversation[-1]["parts"][0])
+        
+        # Handle function calls
+        if response.candidates and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'function_call') and part.function_call:
+                    # Execute function call
+                    tool_result = await mcp_handler.execute_tool(
+                        tool_name=part.function_call.name,
+                        arguments=dict(part.function_call.args),
+                        user_id=session["user_id"]
+                    )
+                    
+                    if tool_result.requires_approval:
+                        # Return approval request
+                        return {
+                            "text": f"I'd like to {part.function_call.name} with the following details: {dict(part.function_call.args)}. Should I proceed?",
+                            "requires_approval": True,
+                            "call_id": tool_result.call_id
+                        }
+                    else:
+                        # Continue conversation with tool result
+                        response = chat.send_message(f"Tool result: {tool_result.result}")
+        
+        # Get final response text
+        response_text = response.text if hasattr(response, 'text') else str(response)
+        
+        return {"text": response_text}
+        
+    except Exception as e:
+        logger.error(f"Error generating bot response: {e}")
+        return {"text": "I'm sorry, I encountered an error processing your request."}
+
+# Tool execution and approval endpoints
+@app.post("/api/tools/approve")
+async def approve_tool_call(
+    request: ToolApprovalRequest,
+    user = Depends(get_current_user)
+):
+    """Approve or deny a pending tool call"""
+    try:
+        if request.approved:
+            result = await mcp_handler.approve_tool_call(request.call_id)
+            return {"status": "approved", "result": result.result, "error": result.error}
+        else:
+            # Remove from pending approvals
+            if request.call_id in mcp_handler.pending_approvals:
+                del mcp_handler.pending_approvals[request.call_id]
+            return {"status": "denied", "message": "Tool call was denied by user"}
+            
+    except Exception as e:
+        logger.error(f"Error in tool approval: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# MCP server management
+@app.get("/api/mcp-servers/{user_id}")
+async def get_user_mcp_servers(user_id: str, user = Depends(get_current_user)):
+    """Get user's MCP servers from Supabase"""
+    try:
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "apikey": settings.SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_ANON_KEY}",
+                "Content-Type": "application/json"
+            }
+            
+            response = await client.get(
+                f"{settings.SUPABASE_URL}/rest/v1/mcp_servers?user_id=eq.{user_id}&select=*",
+                headers=headers
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise HTTPException(status_code=response.status_code, detail="Failed to fetch MCP servers")
+                
+    except Exception as e:
+        logger.error(f"Error fetching MCP servers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/mcp-servers")
+async def add_mcp_server(
+    server_config: MCPServerConfig,
+    user = Depends(get_current_user)
+):
+    """Add a new MCP server"""
+    try:
+        # Add to MCP handler
+        success = await mcp_handler.add_custom_server(server_config.model_dump())
+        
+        if success:
+            # Save to Supabase
+            await save_mcp_server_to_supabase(server_config, user["id"])
+            return {"status": "success", "message": "MCP server added successfully"}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to add MCP server")
+            
+    except Exception as e:
+        logger.error(f"Error adding MCP server: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# API key management
+@app.post("/api/user-keys")
+async def store_user_api_key(
+    request: APIKeyRequest,
+    user = Depends(get_current_user)
+):
+    """Store encrypted API key for user"""
+    try:
+        # Encrypt the API key
+        encrypted_key = encryption.encrypt(request.api_key)
+        
+        # Store in Supabase (user_keys table)
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "apikey": settings.SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_ANON_KEY}",
+                "Content-Type": "application/json"
+            }
+            
+            data = {
+                "user_id": request.user_id,
+                "service": request.service,
+                "encrypted_key": encrypted_key,
+                "created_at": datetime.now().isoformat()
+            }
+            
+            response = await client.post(
+                f"{settings.SUPABASE_URL}/rest/v1/user_api_keys",
+                headers=headers,
+                json=data
+            )
+            
+            if response.status_code == 201:
+                return {"status": "success", "message": f"API key for {request.service} stored securely"}
+            else:
+                raise HTTPException(status_code=400, detail="Failed to store API key")
+                
+    except Exception as e:
+        logger.error(f"Error storing API key: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Google OAuth endpoints
+@app.get("/api/auth/google/url")
+async def get_google_auth_url(user = Depends(get_current_user)):
+    """Get Google OAuth authorization URL"""
+    try:
+        auth_url = google_auth.get_authorization_url(user["id"])
+        return {"auth_url": auth_url}
+        
+    except Exception as e:
+        logger.error(f"Error generating Google auth URL: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/auth/google/callback")
+async def google_auth_callback(request: Request):
+    """Handle Google OAuth callback"""
+    try:
+        # Get authorization code from query params
+        code = request.query_params.get("code")
+        state = request.query_params.get("state")
+        
+        if not code or not state:
+            raise HTTPException(status_code=400, detail="Missing code or state parameter")
+        
+        # Exchange code for tokens
+        tokens = await google_auth.exchange_code_for_tokens(code, state)
+        
+        if tokens:
+            return RedirectResponse(url=f"/voice?auth=success")
+        else:
+            return RedirectResponse(url=f"/voice?auth=error")
+            
+    except Exception as e:
+        logger.error(f"Error in Google OAuth callback: {e}")
+        return RedirectResponse(url=f"/voice?auth=error")
+
+# Helper functions
+async def get_bot_config(bot_id: str, user_id: str) -> Dict:
+    """Get bot configuration from Supabase"""
+    try:
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "apikey": settings.SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_ANON_KEY}",
+                "Content-Type": "application/json"
+            }
+            
+            response = await client.get(
+                f"{settings.SUPABASE_URL}/rest/v1/bots?id=eq.{bot_id}&user_id=eq.{user_id}&select=*",
                 headers=headers
             )
             
@@ -117,311 +743,13 @@ async def get_bot_config(bot_id: str):
         logger.error(f"Error fetching bot config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/mcp-servers/{user_id}")
-async def get_user_mcp_servers(user_id: str):
-    """Get user's MCP servers from Supabase"""
-    try:
-        async with httpx.AsyncClient() as client:
-            headers = {
-                "apikey": SUPABASE_ANON_KEY,
-                "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-                "Content-Type": "application/json"
-            }
-            
-            response = await client.get(
-                f"{SUPABASE_URL}/rest/v1/mcp_servers?user_id=eq.{user_id}&enabled=eq.true&select=*",
-                headers=headers
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                raise HTTPException(status_code=response.status_code, detail="Failed to fetch MCP servers")
-                
-    except Exception as e:
-        logger.error(f"Error fetching MCP servers: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Voice session management
-@app.post("/api/voice-session/start")
-async def start_voice_session(request: VoiceSessionRequest):
-    """Start a new voice session with LiveKit"""
-    try:
-        # Get bot configuration
-        bot_config = await get_bot_config(request.bot_id)
-        
-        # Generate LiveKit access token
-        room_name = request.room_name or f"voice-session-{request.user_id}-{datetime.now().timestamp()}"
-        
-        if not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
-            raise HTTPException(status_code=500, detail="LiveKit credentials not configured")
-            
-        token = api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
-        token.with_identity(request.user_id)
-        token.with_name(f"User-{request.user_id}")
-        token.with_grants(api.VideoGrants(room_join=True, room=room_name))
-        
-        # Store session info
-        session_id = f"{request.user_id}-{request.bot_id}-{datetime.now().timestamp()}"
-        active_sessions[session_id] = {
-            "user_id": request.user_id,
-            "bot_id": request.bot_id,
-            "room_name": room_name,
-            "bot_config": bot_config,
-            "created_at": datetime.now().isoformat(),
-            "messages": []
-        }
-        
-        return {
-            "session_id": session_id,
-            "room_name": room_name,
-            "access_token": token.to_jwt(),
-            "ws_url": LIVEKIT_WS_URL,
-            "bot_config": bot_config
-        }
-        
-    except Exception as e:
-        logger.error(f"Error starting voice session: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.delete("/api/voice-session/{session_id}")
-async def end_voice_session(session_id: str):
-    """End a voice session and save conversation"""
-    try:
-        if session_id in active_sessions:
-            session = active_sessions[session_id]
-            
-            # Save conversation to Supabase
-            if session["messages"]:
-                await save_conversation_to_supabase(
-                    session["user_id"],
-                    session["bot_id"], 
-                    session["messages"]
-                )
-            
-            # Clean up
-            del active_sessions[session_id]
-            
-            return {"status": "session_ended", "session_id": session_id}
-        else:
-            raise HTTPException(status_code=404, detail="Session not found")
-            
-    except Exception as e:
-        logger.error(f"Error ending voice session: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Text-to-speech endpoint
-@app.post("/api/tts")
-async def text_to_speech(text: str, voice: str = "aura-2-thalia-en"):
-    """Convert text to speech using Deepgram"""
-    try:
-        if not DEEPGRAM_API_KEY:
-            raise HTTPException(status_code=500, detail="Deepgram API key not configured")
-            
-        # Use Deepgram TTS
-        options = {
-            "model": voice,
-            "encoding": "mp3",
-            "container": "mp3"
-        }
-        
-        response = deepgram.speak.v("1").save(text, "output.mp3", options)
-        
-        # Return audio file or base64 encoded data
-        with open("output.mp3", "rb") as audio_file:
-            import base64
-            audio_data = base64.b64encode(audio_file.read()).decode()
-            
-        return {"audio_data": audio_data, "format": "mp3"}
-        
-    except Exception as e:
-        logger.error(f"Error in TTS: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Chat completion with Gemini
-@app.post("/api/chat")
-async def chat_completion(messages: List[ChatMessage], bot_id: str, user_id: str):
-    """Generate chat response using Google Gemini"""
-    try:
-        if not GEMINI_API_KEY:
-            raise HTTPException(status_code=500, detail="Gemini API key not configured")
-            
-        # Get bot configuration
-        bot_config = await get_bot_config(bot_id)
-        
-        # Get user's MCP servers for tool definitions
-        mcp_servers_data = await get_user_mcp_servers(user_id)
-        
-        # Initialize Gemini model with function calling
-        model = genai.GenerativeModel(
-            model_name=bot_config.get("model", "gemini-1.5-flash"),
-            tools=await build_tool_definitions(mcp_servers_data)
-        )
-        
-        # Prepare conversation history
-        conversation = []
-        system_prompt = f"""You are {bot_config['name']}, an AI voice assistant. 
-Personality: {bot_config['personality']}
-
-You have access to various tools through MCP servers. Use them when appropriate to help the user.
-Available tools: {', '.join([server['name'] for server in mcp_servers_data])}
-
-Always be helpful, concise, and natural in conversation."""
-        
-        conversation.append({"role": "user", "parts": [system_prompt]})
-        
-        for msg in messages:
-            conversation.append({
-                "role": "user" if msg.role == "user" else "model",
-                "parts": [msg.content]
-            })
-        
-        # Generate response
-        chat = model.start_chat(history=conversation[:-1])
-        response = chat.send_message(conversation[-1]["parts"][0])
-        
-        # Handle function calls if present
-        if response.candidates[0].content.parts:
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, 'function_call'):
-                    # Execute function call through MCP
-                    tool_result = await execute_tool_call(part.function_call, user_id, bot_id)
-                    # Send result back to continue conversation
-                    response = chat.send_message(f"Tool result: {tool_result}")
-        
-        response_text = response.text if hasattr(response, 'text') else str(response)
-        
-        return {
-            "response": response_text,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in chat completion: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# MCP Protocol implementation
-async def build_tool_definitions(mcp_servers_data: List[Dict]) -> List[Dict]:
-    """Build tool definitions for Gemini from MCP servers"""
-    tools = []
-    
-    # Add built-in tools
-    default_tools = [
-        {
-            "name": "add_calendar_event",
-            "description": "Add an event to Google Calendar",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "Event title"},
-                    "start_time": {"type": "string", "description": "Start time (ISO format)"},
-                    "end_time": {"type": "string", "description": "End time (ISO format)"},
-                    "description": {"type": "string", "description": "Event description"}
-                },
-                "required": ["title", "start_time", "end_time"]
-            }
-        },
-        {
-            "name": "send_email",
-            "description": "Send an email via Gmail",
-            "parameters": {
-                "type": "object", 
-                "properties": {
-                    "to": {"type": "string", "description": "Recipient email"},
-                    "subject": {"type": "string", "description": "Email subject"},
-                    "body": {"type": "string", "description": "Email body"}
-                },
-                "required": ["to", "subject", "body"]
-            }
-        },
-        {
-            "name": "search_web",
-            "description": "Search the web using Perplexity AI",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search query"}
-                },
-                "required": ["query"]
-            }
-        }
-    ]
-    
-    tools.extend(default_tools)
-    
-    # Add custom MCP server tools
-    for server in mcp_servers_data:
-        if server.get("enabled", True):
-            # Fetch tool definitions from MCP server
-            try:
-                server_tools = await fetch_mcp_tools(server)
-                tools.extend(server_tools)
-            except Exception as e:
-                logger.warning(f"Failed to fetch tools from {server['name']}: {e}")
-    
-    return tools
-
-async def fetch_mcp_tools(server: Dict) -> List[Dict]:
-    """Fetch available tools from an MCP server"""
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{server['url']}/tools")
-            if response.status_code == 200:
-                return response.json().get("tools", [])
-            return []
-    except Exception as e:
-        logger.error(f"Error fetching tools from {server['name']}: {e}")
-        return []
-
-async def execute_tool_call(function_call: Any, user_id: str, bot_id: str) -> str:
-    """Execute a tool call through appropriate MCP server"""
-    try:
-        tool_name = function_call.name
-        parameters = dict(function_call.args)
-        
-        # Route to appropriate handler
-        if tool_name == "add_calendar_event":
-            return await handle_calendar_event(parameters, user_id)
-        elif tool_name == "send_email":
-            return await handle_send_email(parameters, user_id)
-        elif tool_name == "search_web":
-            return await handle_web_search(parameters)
-        else:
-            # Try custom MCP servers
-            return await handle_custom_mcp_call(tool_name, parameters, user_id)
-            
-    except Exception as e:
-        logger.error(f"Error executing tool call: {e}")
-        return f"Error executing {tool_name}: {str(e)}"
-
-# Tool handlers (placeholders - need actual API integrations)
-async def handle_calendar_event(parameters: Dict, user_id: str) -> str:
-    """Handle Google Calendar event creation"""
-    # TODO: Implement Google Calendar API integration
-    return f"Calendar event '{parameters['title']}' would be created"
-
-async def handle_send_email(parameters: Dict, user_id: str) -> str:
-    """Handle Gmail email sending"""
-    # TODO: Implement Gmail API integration
-    return f"Email to {parameters['to']} would be sent"
-
-async def handle_web_search(parameters: Dict) -> str:
-    """Handle web search via Perplexity"""
-    # TODO: Implement Perplexity API integration
-    return f"Search results for: {parameters['query']}"
-
-async def handle_custom_mcp_call(tool_name: str, parameters: Dict, user_id: str) -> str:
-    """Handle calls to custom MCP servers"""
-    # TODO: Implement MCP protocol calls
-    return f"Custom tool {tool_name} executed with parameters: {parameters}"
-
 async def save_conversation_to_supabase(user_id: str, bot_id: str, messages: List[Dict]):
     """Save conversation to Supabase"""
     try:
         async with httpx.AsyncClient() as client:
             headers = {
-                "apikey": SUPABASE_ANON_KEY,
-                "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+                "apikey": settings.SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_ANON_KEY}",
                 "Content-Type": "application/json"
             }
             
@@ -433,7 +761,7 @@ async def save_conversation_to_supabase(user_id: str, bot_id: str, messages: Lis
             }
             
             response = await client.post(
-                f"{SUPABASE_URL}/rest/v1/conversations",
+                f"{settings.SUPABASE_URL}/rest/v1/conversations",
                 headers=headers,
                 json=conversation_data
             )
@@ -444,102 +772,42 @@ async def save_conversation_to_supabase(user_id: str, bot_id: str, messages: Lis
     except Exception as e:
         logger.error(f"Error saving conversation: {e}")
 
-# WebSocket for real-time communication
-@app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    """WebSocket endpoint for real-time voice communication"""
-    await websocket.accept()
-    
+async def save_mcp_server_to_supabase(server_config: MCPServerConfig, user_id: str):
+    """Save MCP server configuration to Supabase"""
     try:
-        if session_id not in active_sessions:
-            await websocket.send_json({"error": "Invalid session"})
-            return
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "apikey": settings.SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_ANON_KEY}",
+                "Content-Type": "application/json"
+            }
             
-        session = active_sessions[session_id]
-        
-        while True:
-            data = await websocket.receive_json()
+            # Encrypt API key if provided
+            encrypted_key = None
+            if server_config.api_key:
+                encrypted_key = encryption.encrypt(server_config.api_key)
             
-            if data["type"] == "audio":
-                # Process audio data with Deepgram STT
-                text = await process_audio_stt(data["audio"])
+            data = {
+                "user_id": user_id,
+                "name": server_config.name,
+                "url": server_config.url,
+                "enabled": server_config.enabled,
+                "api_key": encrypted_key,
+                "approval_mode": server_config.approval_mode,
+                "description": server_config.description
+            }
+            
+            response = await client.post(
+                f"{settings.SUPABASE_URL}/rest/v1/mcp_servers",
+                headers=headers,
+                json=data
+            )
+            
+            if response.status_code != 201:
+                logger.error(f"Failed to save MCP server: {response.text}")
                 
-                if text:
-                    # Add user message
-                    user_msg = ChatMessage(role="user", content=text)
-                    session["messages"].append(user_msg.dict())
-                    
-                    # Generate bot response
-                    response = await chat_completion(
-                        [ChatMessage(**msg) for msg in session["messages"]],
-                        session["bot_id"],
-                        session["user_id"]
-                    )
-                    
-                    # Add bot message
-                    bot_msg = ChatMessage(role="assistant", content=response["response"])
-                    session["messages"].append(bot_msg.dict())
-                    
-                    # Convert to speech if auto_speak is enabled
-                    if session["bot_config"].get("auto_speak", True):
-                        audio_response = await text_to_speech(
-                            response["response"], 
-                            session["bot_config"].get("voice", "aura-2-thalia-en")
-                        )
-                        
-                        await websocket.send_json({
-                            "type": "response",
-                            "text": response["response"],
-                            "audio": audio_response["audio_data"]
-                        })
-                    else:
-                        await websocket.send_json({
-                            "type": "response", 
-                            "text": response["response"]
-                        })
-            
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for session {session_id}")
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        await websocket.send_json({"error": str(e)})
-
-async def process_audio_stt(audio_data: str) -> str:
-    """Process audio data with Deepgram STT"""
-    try:
-        if not DEEPGRAM_API_KEY:
-            return ""
-            
-        # Decode base64 audio
-        import base64
-        audio_bytes = base64.b64decode(audio_data)
-        
-        # Configure Deepgram
-        options = PrerecordedOptions(
-            model="nova-2-general",
-            smart_format=True,
-            utterances=True,
-            punctuate=True,
-            diarize=True,
-        )
-        
-        # Process with Deepgram
-        response = deepgram.listen.prerecorded.v("1").transcribe_file(
-            {"buffer": audio_bytes, "mimetype": "audio/webm"},
-            options
-        )
-        
-        # Extract transcript
-        if response.results and response.results.channels:
-            alternatives = response.results.channels[0].alternatives
-            if alternatives:
-                return alternatives[0].transcript
-                
-        return ""
-        
-    except Exception as e:
-        logger.error(f"Error in STT processing: {e}")
-        return ""
+        logger.error(f"Error saving MCP server: {e}")
 
 if __name__ == "__main__":
     uvicorn.run(
