@@ -10,6 +10,7 @@ import { SettingsPanel } from './SettingsPanel';
 import { useAuth } from '@/hooks/useAuth';
 import type { Bot } from '@/hooks/useBots';
 import type { Message } from '@/hooks/useConversations';
+import { voiceDebugger } from '@/utils/VoiceDebugger';
 
 interface RealtimeVoiceChatProps {
   botName: string;
@@ -109,6 +110,7 @@ export function RealtimeVoiceChat({
 
   const startRealtimeSession = async () => {
     try {
+      voiceDebugger.log('info', 'Starting real-time voice session...');
       setConnecting(true);
       
       if (!user) {
@@ -128,22 +130,29 @@ export function RealtimeVoiceChat({
 
       mediaStreamRef.current = stream;
 
-      // Connect to realtime voice WebSocket  
-      const wsUrl = `wss://nlxpyaeufqabcyimlohn.supabase.co/functions/v1/realtime-voice`;
+      // Connect to realtime voice WebSocket with proper URL
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      const wsUrl = `${protocol}//${host}/functions/v1/realtime-voice`;
       
+      voiceDebugger.log('info', 'Attempting WebSocket connection', { url: wsUrl });
+      console.log('Connecting to WebSocket:', wsUrl);
       wsRef.current = new WebSocket(wsUrl);
 
       wsRef.current.onopen = () => {
+        voiceDebugger.log('info', 'WebSocket connected successfully');
         console.log('Connected to realtime voice');
         setIsConnected(true);
         setConnecting(false);
         
         // Start session
-        wsRef.current?.send(JSON.stringify({
+        const sessionData = {
           type: 'start_session',
           botId: activeBot.id,
           userId: user.id
-        }));
+        };
+        voiceDebugger.log('info', 'Sending session start request', sessionData);
+        wsRef.current?.send(JSON.stringify(sessionData));
 
         setupAudioRecording(stream);
         toast.success('Voice chat connected');
@@ -155,8 +164,10 @@ export function RealtimeVoiceChat({
       };
 
       wsRef.current.onerror = (error) => {
+        voiceDebugger.log('error', 'WebSocket connection error', error);
+        voiceDebugger.incrementCounter('errors');
         console.error('WebSocket error:', error);
-        toast.error('Connection failed');
+        toast.error('Connection failed - check logs');
         setConnecting(false);
         setIsConnected(false);
       };
@@ -169,6 +180,8 @@ export function RealtimeVoiceChat({
       };
 
     } catch (error) {
+      voiceDebugger.log('error', 'Failed to start realtime session', error);
+      voiceDebugger.incrementCounter('errors');
       console.error('Failed to start realtime session:', error);
       toast.error(`Failed to start: ${error.message}`);
       setConnecting(false);
@@ -176,64 +189,118 @@ export function RealtimeVoiceChat({
   };
 
   const setupAudioRecording = (stream: MediaStream) => {
-    // Setup MediaRecorder for continuous audio streaming
+    console.log('Setting up optimized audio recording for real-time processing...');
+    
+    // Setup MediaRecorder with optimal settings for voice
     const mediaRecorder = new MediaRecorder(stream, {
-      mimeType: 'audio/webm;codecs=opus'
+      mimeType: 'audio/webm;codecs=opus',
+      audioBitsPerSecond: 16000 // Optimized for voice
     });
     
     mediaRecorderRef.current = mediaRecorder;
 
     mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-        // Convert to base64 and send immediately
+        // Convert to base64 and send immediately for real-time processing
         const reader = new FileReader();
         reader.onload = () => {
           const base64Audio = (reader.result as string).split(',')[1];
           wsRef.current?.send(JSON.stringify({
             type: 'audio_chunk',
-            audio: base64Audio
+            audio: base64Audio,
+            timestamp: Date.now()
           }));
         };
         reader.readAsDataURL(event.data);
       }
     };
 
-    // Setup Voice Activity Detection
+    mediaRecorder.onerror = (event) => {
+      console.error('MediaRecorder error:', event);
+      toast.error('Audio recording error');
+    };
+
+    // Setup Voice Activity Detection for natural conversation flow
     vadRef.current = new VoiceActivityDetector(
       () => {
+        console.log('Voice activity detected - user started speaking');
         setIsListening(true);
-        if (isSpeaking) {
-          // Stop bot audio if user starts speaking (interruption)
-          if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.currentTime = 0;
-          }
+        
+        // Interrupt bot speech if user starts talking
+        if (isSpeaking && audioRef.current) {
+          console.log('Interrupting bot speech - user is talking');
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
           setIsSpeaking(false);
         }
       },
       () => {
-        setIsListening(false);
+        console.log('Voice activity ended - user stopped speaking');
+        setTimeout(() => setIsListening(false), 500); // Small delay for natural feel
       }
     );
 
     vadRef.current.initialize(stream);
 
-    // Start recording with small chunks for real-time processing
-    mediaRecorder.start(100); // 100ms chunks
+    // Start continuous recording with small chunks for minimal latency
+    console.log('Starting continuous audio streaming...');
+    mediaRecorder.start(50); // 50ms chunks for ultra-low latency
+
+    // Monitor recording state
+    mediaRecorder.onstart = () => {
+      console.log('Audio recording started successfully');
+    };
+
+    mediaRecorder.onstop = () => {
+      console.log('Audio recording stopped');
+    };
   };
 
   const handleWebSocketMessage = (data: any) => {
+    voiceDebugger.log('debug', `Received WebSocket message: ${data.type}`, data);
+    console.log('WebSocket message received:', data.type, data);
+    
     switch (data.type) {
-      case 'session_started':
-        console.log('Session started:', data.sessionId);
+      case 'connection_ready':
+        console.log('WebSocket connection ready');
         break;
         
-      case 'transcript':
+      case 'session_started':
+        console.log('Voice session started:', data.sessionId);
+        toast.success(`Voice session started with ${data.botName}`);
+        break;
+        
+      case 'stt_ready':
+        console.log('Speech-to-text ready');
+        toast.success('Voice recognition ready');
+        break;
+        
+      case 'transcript_update':
+        voiceDebugger.incrementCounter('transcriptUpdates');
+        // Real-time transcript updates
         setTranscript(data.text);
         if (data.isFinal) {
           setCurrentUserMessage(data.text);
-          setTimeout(() => setTranscript(''), 2000);
+          // Clear transcript after showing final version
+          setTimeout(() => {
+            setTranscript('');
+            setCurrentUserMessage('');
+          }, 3000);
         }
+        break;
+        
+      case 'speech_started':
+        setIsListening(true);
+        // Stop any playing audio when user starts speaking (interruption)
+        if (audioRef.current && !audioRef.current.paused) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+          setIsSpeaking(false);
+        }
+        break;
+        
+      case 'speech_ended':
+        setIsListening(false);
         break;
         
       case 'user_message':
@@ -243,7 +310,6 @@ export function RealtimeVoiceChat({
           type: 'user' as const
         };
         onAddMessage(userMsg);
-        setCurrentUserMessage('');
         break;
         
       case 'ai_response':
@@ -259,42 +325,76 @@ export function RealtimeVoiceChat({
         playAudioResponse(data.audio);
         break;
         
-      case 'error':
-        console.error('Voice error:', data.message);
+      case 'processing_error':
+      case 'stt_error':
+      case 'tts_error':
+        voiceDebugger.log('error', 'Voice processing error', data);
+        voiceDebugger.incrementCounter('errors');
+        console.error('Voice processing error:', data.message);
         toast.error(data.message);
         break;
         
       case 'session_ended':
-        console.log('Session ended');
+        console.log('Voice session ended');
+        toast.info('Voice session ended');
         break;
+        
+      default:
+        console.log('Unknown message type:', data.type);
     }
   };
 
   const playAudioResponse = (audioData: string) => {
+    voiceDebugger.log('info', 'Starting audio playback', { audioSize: audioData.length });
+    console.log('Playing audio response, size:', audioData.length);
     setIsSpeaking(true);
     
     try {
+      // Create audio element with optimized settings
       const audio = new Audio(`data:audio/mp3;base64,${audioData}`);
       audioRef.current = audio;
       
+      // Optimize for low latency playback
+      audio.preload = 'auto';
+      audio.volume = isMuted ? 0 : 1;
+      
+      audio.onloadeddata = () => {
+        console.log('Audio loaded and ready to play');
+      };
+      
+      audio.onplay = () => {
+        console.log('Audio playback started');
+      };
+      
       audio.onended = () => {
+        console.log('Audio playback completed');
         setIsSpeaking(false);
+        audioRef.current = null;
       };
       
-      audio.onerror = () => {
+      audio.onerror = (error) => {
+        console.error('Audio playback error:', error);
         setIsSpeaking(false);
-        console.error('Error playing audio response');
+        audioRef.current = null;
+        toast.error('Audio playback failed');
       };
       
+      // Start playback immediately unless muted
       if (!isMuted) {
         audio.play().catch(error => {
-          console.error('Error playing audio:', error);
+          console.error('Error starting audio playback:', error);
           setIsSpeaking(false);
+          audioRef.current = null;
         });
+      } else {
+        console.log('Audio muted - not playing');
+        setIsSpeaking(false);
       }
+      
     } catch (error) {
-      console.error('Error creating audio:', error);
+      console.error('Error creating audio element:', error);
       setIsSpeaking(false);
+      toast.error('Failed to create audio');
     }
   };
 
@@ -373,6 +473,17 @@ export function RealtimeVoiceChat({
         >
           <Settings className="w-4 h-4" />
           Settings
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            console.log(voiceDebugger.getPerformanceReport());
+            toast.success('Performance report logged to console');
+          }}
+          className="gap-2"
+        >
+          📊 Debug
         </Button>
       </div>
 
@@ -458,12 +569,17 @@ export function RealtimeVoiceChat({
           {/* Status */}
           <div className="text-center">
             <p className="text-sm text-muted-foreground">
-              {connecting ? 'Connecting...' : 
-               !isConnected ? 'Click to start real-time voice chat' :
-               isListening ? '🎤 Listening...' : 
-               isSpeaking ? '🔊 Speaking...' : 
-               '⭐ Ready - Start talking'}
+              {connecting ? 'Connecting to voice system...' : 
+               !isConnected ? 'Click to start real-time voice conversation' :
+               isListening ? '🎤 Listening - speak now...' : 
+               isSpeaking ? '🔊 Speaking - you can interrupt anytime' : 
+               '⭐ Ready - start talking naturally'}
             </p>
+            {isConnected && (
+              <p className="text-xs text-muted-foreground/70 mt-1">
+                Ultra-low latency • Real-time processing • Natural conversation
+              </p>
+            )}
           </div>
         </div>
       </div>

@@ -1,12 +1,26 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+}
+
 serve(async (req) => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
   const { headers } = req
   const upgradeHeader = headers.get("upgrade") || ""
 
   if (upgradeHeader.toLowerCase() !== "websocket") {
-    return new Response("Expected WebSocket connection", { status: 400 })
+    return new Response("Expected WebSocket connection", { 
+      status: 400,
+      headers: corsHeaders 
+    })
   }
 
   const { socket, response } = Deno.upgradeWebSocket(req)
@@ -14,8 +28,14 @@ serve(async (req) => {
   // Get environment variables
   const DEEPGRAM_API_KEY = Deno.env.get('DEEPGRAM_API_KEY')
   const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')
+  const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
+  const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')
   
   if (!DEEPGRAM_API_KEY || !GEMINI_API_KEY) {
+    console.error('Missing API keys:', { 
+      deepgram: !!DEEPGRAM_API_KEY, 
+      gemini: !!GEMINI_API_KEY 
+    })
     socket.close(1000, 'Missing API keys')
     return response
   }
@@ -25,15 +45,20 @@ serve(async (req) => {
   let conversationHistory: any[] = []
   let botConfig = null
   let deepgramSocket: WebSocket | null = null
+  let isProcessing = false
 
   // Create Supabase client
   const supabase = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+    SUPABASE_URL ?? '',
+    SUPABASE_ANON_KEY ?? ''
   )
 
   socket.onopen = () => {
-    console.log('WebSocket connection opened')
+    console.log('WebSocket connection opened - ready for real-time voice')
+    socket.send(JSON.stringify({
+      type: 'connection_ready',
+      message: 'WebSocket connected successfully'
+    }))
   }
 
   socket.onmessage = async (event) => {
@@ -111,148 +136,225 @@ serve(async (req) => {
   }
 
   function initializeDeepgramStreaming() {
-    const deepgramUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=en&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000`
+    const deepgramUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=en&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000&vad_events=true`
     
+    console.log('Connecting to Deepgram streaming STT...')
     deepgramSocket = new WebSocket(deepgramUrl, [
       'token',
       DEEPGRAM_API_KEY
     ])
 
     deepgramSocket.onopen = () => {
-      console.log('Connected to Deepgram streaming')
+      console.log('Connected to Deepgram streaming - STT ready')
       isListening = true
+      socket.send(JSON.stringify({
+        type: 'stt_ready',
+        message: 'Speech-to-text ready'
+      }))
     }
 
     deepgramSocket.onmessage = async (event) => {
-      const result = JSON.parse(event.data)
-      
-      if (result.channel?.alternatives?.[0]) {
-        const transcript = result.channel.alternatives[0].transcript
-        const isFinal = result.is_final
+      try {
+        const result = JSON.parse(event.data)
         
-        if (transcript.trim()) {
-          // Send partial transcript for real-time display
-          socket.send(JSON.stringify({
-            type: 'transcript',
-            text: transcript,
-            isFinal: isFinal
-          }))
+        if (result.channel?.alternatives?.[0]) {
+          const transcript = result.channel.alternatives[0].transcript
+          const confidence = result.channel.alternatives[0].confidence
+          const isFinal = result.is_final
+          
+          if (transcript.trim()) {
+            // Send real-time transcript for live display
+            socket.send(JSON.stringify({
+              type: 'transcript_update',
+              text: transcript,
+              confidence: confidence,
+              isFinal: isFinal,
+              timestamp: new Date().toISOString()
+            }))
 
-          // Process final transcript
-          if (isFinal && transcript.trim().length > 3) {
-            await processUserMessage(transcript)
+            // Process final transcript with high confidence
+            if (isFinal && transcript.trim().length > 2 && confidence > 0.7) {
+              console.log('Processing final transcript:', transcript)
+              await processUserMessage(transcript)
+            }
           }
         }
+
+        // Handle voice activity detection events
+        if (result.type === 'SpeechStarted') {
+          socket.send(JSON.stringify({
+            type: 'speech_started',
+            timestamp: new Date().toISOString()
+          }))
+        } else if (result.type === 'UtteranceEnd') {
+          socket.send(JSON.stringify({
+            type: 'speech_ended',
+            timestamp: new Date().toISOString()
+          }))
+        }
+      } catch (error) {
+        console.error('Error processing Deepgram message:', error)
       }
     }
 
     deepgramSocket.onerror = (error) => {
-      console.error('Deepgram error:', error)
+      console.error('Deepgram streaming error:', error)
       socket.send(JSON.stringify({
-        type: 'error',
-        message: 'Speech recognition error'
+        type: 'stt_error',
+        message: 'Speech recognition error - retrying...'
       }))
+      
+      // Attempt to reconnect after a short delay
+      setTimeout(() => {
+        if (currentSession && !deepgramSocket) {
+          initializeDeepgramStreaming()
+        }
+      }, 2000)
+    }
+
+    deepgramSocket.onclose = (event) => {
+      console.log('Deepgram connection closed:', event.code, event.reason)
+      isListening = false
     }
   }
 
   async function handleAudioChunk(data: any) {
     if (deepgramSocket && deepgramSocket.readyState === WebSocket.OPEN && data.audio) {
-      // Send audio to Deepgram for real-time transcription
-      deepgramSocket.send(data.audio)
+      try {
+        // Decode base64 audio and send to Deepgram for real-time STT
+        const binaryAudio = atob(data.audio)
+        const audioBuffer = new Uint8Array(binaryAudio.length)
+        for (let i = 0; i < binaryAudio.length; i++) {
+          audioBuffer[i] = binaryAudio.charCodeAt(i)
+        }
+        deepgramSocket.send(audioBuffer)
+      } catch (error) {
+        console.error('Error processing audio chunk:', error)
+      }
     }
   }
 
   async function processUserMessage(transcript: string) {
+    if (isProcessing) {
+      console.log('Already processing a message, skipping...')
+      return
+    }
+    
+    isProcessing = true
+    
     try {
+      console.log('Processing user message:', transcript)
+      
       // Add user message to conversation history
       conversationHistory.push({
         role: 'user',
-        content: transcript
+        content: transcript,
+        timestamp: new Date().toISOString()
       })
 
-      // Send user message to client
+      // Send user message to client immediately
       socket.send(JSON.stringify({
         type: 'user_message',
-        content: transcript
+        content: transcript,
+        timestamp: new Date().toISOString()
       }))
 
-      // Get AI response
-      const systemPrompt = `You are ${botConfig.name}. ${botConfig.personality || 'You are a helpful AI assistant.'} Keep responses conversational and concise for voice interaction.`
-      
-      const messages = [
-        { role: 'system', content: systemPrompt },
-        ...conversationHistory.slice(-10) // Last 10 messages for context
-      ]
+      // Generate AI response in parallel with context
+      const systemPrompt = `You are ${botConfig.name}. ${botConfig.personality || 'You are a helpful AI assistant.'} 
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${botConfig.model}:generateContent?key=${GEMINI_API_KEY}`, {
+Key instructions:
+- Keep responses conversational and concise for voice interaction (1-2 sentences)
+- Be natural and engaging
+- If user asks about meetings, calendar, or tasks, acknowledge you can help with that
+- Respond immediately and naturally
+
+Conversation context: ${conversationHistory.slice(-5).map(msg => `${msg.role}: ${msg.content}`).join('\n')}`
+      
+      console.log('Sending request to Gemini...')
+      
+      // Use Gemini API for fast response
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          contents: messages.slice(1).map(msg => ({
-            role: msg.role === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.content }]
-          })),
-          systemInstruction: {
-            parts: [{ text: systemPrompt }]
-          },
+          contents: [{
+            parts: [{
+              text: `Context: ${systemPrompt}\n\nUser: ${transcript}\n\nAssistant:`
+            }]
+          }],
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 150, // Shorter responses for voice
+            maxOutputTokens: 100, // Keep responses short for voice
+            topP: 0.9,
           },
         }),
       })
 
       if (!response.ok) {
-        throw new Error(`Gemini API error: ${await response.text()}`)
+        const errorText = await response.text()
+        console.error('Gemini API error:', response.status, errorText)
+        throw new Error(`Gemini API error: ${response.status}`)
       }
 
       const result = await response.json()
-      const aiResponse = result.candidates?.[0]?.content?.parts?.[0]?.text || 'I apologize, but I could not generate a response.'
+      const aiResponse = result.candidates?.[0]?.content?.parts?.[0]?.text || 
+        "I apologize, but I'm having trouble generating a response right now."
+
+      console.log('AI Response generated:', aiResponse)
 
       // Add AI response to conversation history
       conversationHistory.push({
         role: 'assistant',
-        content: aiResponse
+        content: aiResponse,
+        timestamp: new Date().toISOString()
       })
 
       // Send AI response to client
       socket.send(JSON.stringify({
         type: 'ai_response',
-        content: aiResponse
+        content: aiResponse,
+        timestamp: new Date().toISOString()
       }))
 
-      // Generate speech if auto-speak is enabled
+      // Generate speech immediately if auto-speak is enabled
       if (botConfig.auto_speak) {
+        console.log('Starting TTS generation...')
         await generateSpeech(aiResponse)
       }
 
     } catch (error) {
       console.error('Error processing user message:', error)
       socket.send(JSON.stringify({
-        type: 'error',
-        message: 'Failed to process message'
+        type: 'processing_error',
+        message: 'Failed to process message: ' + error.message
       }))
+    } finally {
+      isProcessing = false
     }
   }
 
   async function generateSpeech(text: string) {
     try {
-      const response = await fetch('https://api.deepgram.com/v1/speak', {
+      console.log('Generating speech for:', text.substring(0, 50) + '...')
+      
+      // Use Deepgram TTS for high-quality speech
+      const response = await fetch('https://api.deepgram.com/v1/speak?model=aura-asteria-en', {
         method: 'POST',
         headers: {
           'Authorization': `Token ${DEEPGRAM_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          text,
-          model: botConfig.voice || 'aura-2-thalia-en',
+          text: text,
         }),
       })
 
       if (!response.ok) {
-        throw new Error(`Deepgram TTS API error: ${await response.text()}`)
+        const errorText = await response.text()
+        console.error('Deepgram TTS error:', response.status, errorText)
+        throw new Error(`Deepgram TTS API error: ${response.status}`)
       }
 
       // Get audio as array buffer and convert to base64
@@ -261,17 +363,21 @@ serve(async (req) => {
         String.fromCharCode(...new Uint8Array(arrayBuffer))
       )
 
-      // Send audio to client
+      console.log('TTS audio generated, size:', arrayBuffer.byteLength)
+
+      // Send audio to client for immediate playback
       socket.send(JSON.stringify({
         type: 'audio_response',
-        audio: base64Audio
+        audio: base64Audio,
+        format: 'mp3',
+        timestamp: new Date().toISOString()
       }))
 
     } catch (error) {
       console.error('TTS Error:', error)
       socket.send(JSON.stringify({
-        type: 'error',
-        message: 'Failed to generate speech'
+        type: 'tts_error',
+        message: 'Failed to generate speech: ' + error.message
       }))
     }
   }
