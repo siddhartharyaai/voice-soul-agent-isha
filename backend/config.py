@@ -1,8 +1,9 @@
 """
-Configuration management and environment validation
+Configuration management and environment validation with Supabase secrets integration
 """
 
 import os
+import asyncio
 import logging
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
@@ -16,6 +17,13 @@ if env_file.exists():
 
 logger = logging.getLogger(__name__)
 
+# Import Supabase secrets client
+try:
+    from supabase_secrets import secrets_client
+except ImportError:
+    logger.warning("Supabase secrets client not available, using environment variables only")
+    secrets_client = None
+
 @dataclass
 class ValidationResult:
     is_valid: bool
@@ -24,7 +32,7 @@ class ValidationResult:
     recommendations: List[str]
 
 class Settings:
-    """Application settings with environment validation"""
+    """Application settings with environment validation and Supabase secrets integration"""
     
     def __init__(self):
         # Core FastAPI settings
@@ -32,16 +40,16 @@ class Settings:
         self.HOST = os.getenv("HOST", "0.0.0.0")
         self.PORT = int(os.getenv("PORT", "8000"))
         
-        # Supabase configuration
-        self.SUPABASE_URL = os.getenv("SUPABASE_URL")
-        self.SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+        # Supabase configuration (static values)
+        self.SUPABASE_URL = os.getenv("SUPABASE_URL", "https://nlxpyaeufqabcyimlohn.supabase.co")
+        self.SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5seHB5YWV1ZnFhYmN5aW1sb2huIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2OTY4NzAsImV4cCI6MjA2ODI3Mjg3MH0.w57pURCdwaMeJycaQdVkQ--2KnbC8cxeB3yA6KMUbag")
         self.SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         
-        # Core AI services (required)
+        # Core AI services (will be loaded from Supabase secrets)
         self.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
         self.DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
         
-        # LiveKit configuration (required for voice)
+        # LiveKit configuration (will be loaded from Supabase secrets)
         self.LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
         self.LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
         self.LIVEKIT_WS_URL = os.getenv("LIVEKIT_WS_URL")
@@ -67,6 +75,27 @@ class Settings:
         self.SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
         self.NOTION_CLIENT_ID = os.getenv("NOTION_CLIENT_ID")
         self.NOTION_CLIENT_SECRET = os.getenv("NOTION_CLIENT_SECRET")
+
+    async def load_secrets_from_supabase(self):
+        """Load secrets from Supabase and update settings"""
+        if secrets_client:
+            try:
+                logger.info("🔑 Loading secrets from Supabase...")
+                secrets = await secrets_client.load_all_secrets()
+                
+                # Update settings with loaded secrets
+                for key, value in secrets.items():
+                    setattr(self, key, value)
+                    logger.info(f"✅ Loaded secret: {key}")
+                
+                logger.info(f"🎉 Successfully loaded {len(secrets)} secrets from Supabase")
+                return True
+            except Exception as e:
+                logger.error(f"❌ Failed to load secrets from Supabase: {e}")
+                return False
+        else:
+            logger.warning("⚠️ Supabase secrets client not available")
+            return False
 
 def validate_environment() -> ValidationResult:
     """Validate environment configuration and provide recommendations"""

@@ -87,6 +87,11 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
   const startVoiceSession = async () => {
     if (!user || !botId) {
       Logger.error('Voice session start failed: Missing user or botId', { user: !!user, botId });
+      toast({
+        title: "Voice Session Error",
+        description: "User authentication or bot selection required",
+        variant: "destructive",
+      });
       return;
     }
     
@@ -94,31 +99,69 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
     setIsConnecting(true);
     
     try {
-      // Check backend connectivity first
+      // Check backend connectivity first with timeout
       Logger.debug('Checking backend connectivity', { url: backendUrl });
       
-      const healthCheck = await fetch(`${backendUrl}/health`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
       
-      if (!healthCheck.ok) {
-        throw new Error(`Backend not responding (${healthCheck.status}). Please start the backend server with: cd backend && python start_backend.py`);
+      let healthCheck;
+      try {
+        healthCheck = await fetch(`${backendUrl}/health`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        if (fetchError.name === 'AbortError') {
+          throw new Error('Backend server not responding. Please start it with: python start_backend.py');
+        }
+        throw new Error(`Cannot connect to backend server at ${backendUrl}. Make sure it's running on port 8000.`);
       }
       
-      Logger.info('Backend health check passed');
+      if (!healthCheck.ok) {
+        throw new Error(`Backend server error (${healthCheck.status}). Check server logs for details.`);
+      }
       
-      // Request microphone access
+      const healthData = await healthCheck.json();
+      Logger.info('Backend health check passed', healthData);
+      
+      // Check required services
+      const services = healthData.services || {};
+      if (!services.deepgram) {
+        throw new Error('Deepgram API key not configured. Please add DEEPGRAM_API_KEY to Supabase secrets.');
+      }
+      if (!services.gemini) {
+        throw new Error('Gemini API key not configured. Please add GEMINI_API_KEY to Supabase secrets.');
+      }
+      if (!services.livekit) {
+        throw new Error('LiveKit not configured. Please add LIVEKIT_API_KEY, LIVEKIT_API_SECRET, and LIVEKIT_WS_URL to Supabase secrets.');
+      }
+      
+      // Request microphone access with better error handling
       Logger.debug('Requesting microphone access');
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          sampleRate: 24000,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            sampleRate: 24000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+      } catch (micError: any) {
+        if (micError.name === 'NotAllowedError') {
+          throw new Error('Microphone access denied. Please allow microphone access in your browser settings.');
+        } else if (micError.name === 'NotFoundError') {
+          throw new Error('No microphone found. Please connect a microphone and try again.');
+        } else {
+          throw new Error(`Microphone error: ${micError.message}`);
         }
-      });
+      }
       
       Logger.voice('Microphone access granted');
       
@@ -137,7 +180,8 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
 
       if (!response.ok) {
         const errorData = await response.text();
-        throw new Error(`Voice session start failed: ${response.status} - ${errorData}`);
+        Logger.error('Voice session start failed', { status: response.status, error: errorData });
+        throw new Error(`Voice session failed: ${response.status} - ${errorData}`);
       }
       
       const sessionData = await response.json();
@@ -152,11 +196,14 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
       wsRef.current = ws;
 
       ws.onopen = () => {
-        Logger.voice('WebSocket connected');
+        Logger.voice('WebSocket connected successfully');
         setIsListening(true);
+        setIsConnecting(false);
+        setupAudioRecording(stream);
+        
         toast({
-          title: "Voice session started",
-          description: "You can now speak to your assistant",
+          title: "Voice Session Started",
+          description: "You can now speak to your AI assistant!",
         });
       };
 

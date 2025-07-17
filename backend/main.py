@@ -49,14 +49,21 @@ async def lifespan(app: FastAPI):
     """Application lifecycle management"""
     logger.info("🚀 Starting Isha Voice Assistant Backend")
     
-    # Validate environment
+    # Load secrets from Supabase first
+    logger.info("🔑 Loading secrets from Supabase...")
+    secrets_loaded = await settings.load_secrets_from_supabase()
+    
+    # Validate environment after loading secrets
     validation_result = validate_environment()
     if not validation_result.is_valid:
         logger.error(f"❌ Environment validation failed: {validation_result.missing_keys}")
-        logger.error("Please check your .env file and ensure all required keys are set")
-        exit(1)
-    
-    logger.info("✅ Environment validation passed")
+        if not secrets_loaded:
+            logger.error("💡 Tip: Make sure to configure API keys in your Supabase project secrets")
+            logger.error("   1. Go to Supabase Dashboard > Settings > API")
+            logger.error("   2. Add your GEMINI_API_KEY, DEEPGRAM_API_KEY, LIVEKIT_API_KEY, etc.")
+        logger.warning("⚠️ Starting with limited functionality - some features may not work")
+    else:
+        logger.info("✅ Environment validation passed")
     
     # Initialize MCP servers
     await mcp_handler.initialize_servers()
