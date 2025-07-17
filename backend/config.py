@@ -45,6 +45,9 @@ class Settings:
         self.SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5seHB5YWV1ZnFhYmN5aW1sb2huIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2OTY4NzAsImV4cCI6MjA2ODI3Mjg3MH0.w57pURCdwaMeJycaQdVkQ--2KnbC8cxeB3yA6KMUbag")
         self.SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         
+        # Try to load from Supabase secrets first
+        self._load_from_supabase_sync()
+        
         # Core AI services (will be loaded from Supabase secrets)
         self.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
         self.DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
@@ -75,6 +78,54 @@ class Settings:
         self.SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
         self.NOTION_CLIENT_ID = os.getenv("NOTION_CLIENT_ID")
         self.NOTION_CLIENT_SECRET = os.getenv("NOTION_CLIENT_SECRET")
+
+    def _load_from_supabase_sync(self):
+        """Synchronously try to load secrets from Supabase (best effort)"""
+        try:
+            import requests
+            
+            # Try with service role key if available
+            service_role_key = self.SUPABASE_SERVICE_ROLE_KEY
+            if not service_role_key:
+                logger.info("🔑 No service role key found, using provided secrets")
+                return False
+            
+            headers = {
+                "apikey": service_role_key,
+                "Authorization": f"Bearer {service_role_key}",
+                "Content-Type": "application/json"
+            }
+            
+            # Try to get secrets
+            secrets_to_fetch = [
+                "GEMINI_API_KEY", "DEEPGRAM_API_KEY", "LIVEKIT_API_KEY", 
+                "LIVEKIT_API_SECRET", "LIVEKIT_WS_URL"
+            ]
+            
+            for secret_name in secrets_to_fetch:
+                try:
+                    response = requests.post(
+                        f"{self.SUPABASE_URL}/functions/v1/get-secret",
+                        headers=headers,
+                        json={"secret_name": secret_name},
+                        timeout=5
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        secret_value = data.get("value")
+                        if secret_value:
+                            setattr(self, secret_name, secret_value)
+                            os.environ[secret_name] = secret_value
+                            logger.info(f"✅ Loaded {secret_name} from Supabase")
+                except Exception as e:
+                    logger.debug(f"Could not load {secret_name}: {e}")
+                    
+            return True
+            
+        except Exception as e:
+            logger.debug(f"Supabase secrets loading failed (will use env vars): {e}")
+            return False
 
     async def load_secrets_from_supabase(self):
         """Load secrets from Supabase and update settings"""

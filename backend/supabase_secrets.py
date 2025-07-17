@@ -25,6 +25,13 @@ class SupabaseSecretsClient:
             if secret_name in self.secrets_cache:
                 return self.secrets_cache[secret_name]
             
+            # Fallback to environment variable first (since user has set them)
+            env_value = os.getenv(secret_name)
+            if env_value and env_value != "":
+                self.secrets_cache[secret_name] = env_value
+                logger.info(f"✅ Retrieved secret from env: {secret_name}")
+                return env_value
+            
             # Try to fetch from Supabase secrets using Edge Function
             service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
             if not service_role_key:
@@ -53,13 +60,6 @@ class SupabaseSecretsClient:
                         self.secrets_cache[secret_name] = secret_value
                         logger.info(f"✅ Retrieved secret from Supabase: {secret_name}")
                         return secret_value
-            
-            # Fallback to environment variable
-            env_value = os.getenv(secret_name)
-            if env_value and env_value != "":
-                self.secrets_cache[secret_name] = env_value
-                logger.info(f"✅ Retrieved secret from env: {secret_name}")
-                return env_value
             
             logger.warning(f"⚠️ Secret not found in Supabase or env: {secret_name}")
             return None
