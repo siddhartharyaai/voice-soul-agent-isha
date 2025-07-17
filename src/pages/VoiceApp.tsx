@@ -71,7 +71,7 @@ export default function VoiceApp() {
           onAddMessage={addMessage}
           onSaveConversation={saveConversation}
           activeBot={activeBot}
-          onUpdateBot={updateBot}
+          onUpdateBot={updateBot as any}
           mcpServers={mcpServers}
         />
       </div>

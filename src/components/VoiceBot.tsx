@@ -1,339 +1,191 @@
-import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
-  Mic, 
-  MicOff, 
-  MessageSquare, 
-  Volume2, 
-  VolumeX, 
-  Loader2,
-  Settings,
-  Square,
-  Send
-} from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
+import { Mic, MicOff, Volume2, VolumeX, MessageSquare, Phone, PhoneOff, Settings } from 'lucide-react';
+import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'framer-motion';
 import { VoiceVisualization } from './VoiceVisualization';
-import { ChatBubble } from './ChatBubble';
-
+import { ChatHistory } from './ChatHistory';
 import { SettingsPanel } from './SettingsPanel';
-import { APIKeyModal } from './APIKeyModal';
-import { Message } from '@/hooks/useConversations';
-import { useToast } from '@/hooks/use-toast';
+import { MCPServerForm } from './MCPServerForm';
+import { WorkflowPanel } from './WorkflowPanel';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { useAPIKeys } from '@/hooks/useAPIKeys';
-import { cn } from '@/lib/utils';
-import { Logger } from '@/utils/logger';
+import type { Bot } from '@/hooks/useBots';
+import type { MCPServer } from '@/hooks/useMCPServers';
+import type { Message } from '@/hooks/useConversations';
 
 interface VoiceBotProps {
   botName: string;
   botId: string;
   messages: Message[];
-  onAddMessage: (message: Omit<Message, 'id' | 'timestamp'>) => Message;
-  onSaveConversation: (messages: Message[]) => void;
-  activeBot?: any;
-  onUpdateBot?: (botId: string, updates: any) => Promise<any>;
-  mcpServers?: any[];
+  onAddMessage: (message: Omit<Message, 'timestamp' | 'id'>) => Message;
+  onSaveConversation: (messages: Message[]) => Promise<void>;
+  activeBot: Bot;
+  onUpdateBot: (botId: string, updates: Partial<Bot>) => Promise<Bot>;
+  mcpServers: MCPServer[];
 }
 
 export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConversation, activeBot, onUpdateBot, mcpServers }: VoiceBotProps) {
+  const { user } = useAuth();
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [inputMode, setInputMode] = useState<'voice' | 'text'>('voice');
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [voiceSession, setVoiceSession] = useState<any>(null);
-  
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [apiKeyModal, setApiKeyModal] = useState<{ isOpen: boolean; service: 'gemini' | 'deepgram' | 'perplexity' | 'openai' | 'notion' | 'slack' | 'todoist' | 'github' | 'spotify' | 'google' | null }>({ isOpen: false, service: null });
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [transcription, setTranscription] = useState('');
-  const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
-  
-  const { user } = useAuth();
-  const { saveAPIKey } = useAPIKeys();
-  const { toast } = useToast();
-  const wsRef = useRef<WebSocket | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-
-  // Always use localhost for development - no production URL until deployed
-  const backendUrl = 'http://localhost:8000';
-
-  useEffect(() => {
-    return () => {
-      // Cleanup on unmount
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (mediaRecorderRef.current) {
-        mediaRecorderRef.current.stop();
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
-    };
-  }, []);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const startVoiceSession = async () => {
-    if (!user || !botId) {
-      Logger.error('Voice session start failed: Missing user or botId', { user: !!user, botId });
-      toast({
-        title: "Voice Session Error",
-        description: "User authentication or bot selection required",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    Logger.voice('Starting voice session', { botId, userId: user.id });
-    setIsConnecting(true);
-    
     try {
-      // Check backend connectivity first with timeout
-      Logger.debug('Checking backend connectivity', { url: backendUrl });
+      setConnecting(true);
       
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
       
-      let healthCheck;
-      try {
-        healthCheck = await fetch(`${backendUrl}/health`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-        if (fetchError.name === 'AbortError') {
-          throw new Error('Backend server not responding. Please start it with: python start_backend.py');
+      // Start voice session using edge function
+      const { data: sessionData, error: sessionError } = await supabase.functions.invoke('voice-session', {
+        body: {
+          action: 'start',
+          botId: activeBot.id,
+          userId: user.id
         }
-        throw new Error(`Cannot connect to backend server at ${backendUrl}. Make sure it's running on port 8000.`);
-      }
-      
-      if (!healthCheck.ok) {
-        throw new Error(`Backend server error (${healthCheck.status}). Check server logs for details.`);
-      }
-      
-      const healthData = await healthCheck.json();
-      Logger.info('Backend health check passed', healthData);
-      
-      // Check required services
-      const services = healthData.services || {};
-      if (!services.deepgram) {
-        throw new Error('Deepgram API key not configured. Please add DEEPGRAM_API_KEY to Supabase secrets.');
-      }
-      if (!services.gemini) {
-        throw new Error('Gemini API key not configured. Please add GEMINI_API_KEY to Supabase secrets.');
-      }
-      if (!services.livekit) {
-        throw new Error('LiveKit not configured. Please add LIVEKIT_API_KEY, LIVEKIT_API_SECRET, and LIVEKIT_WS_URL to Supabase secrets.');
-      }
-      
-      // Request microphone access with better error handling
-      Logger.debug('Requesting microphone access');
-      let stream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            sampleRate: 24000,
-            channelCount: 1,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
-        });
-      } catch (micError: any) {
-        if (micError.name === 'NotAllowedError') {
-          throw new Error('Microphone access denied. Please allow microphone access in your browser settings.');
-        } else if (micError.name === 'NotFoundError') {
-          throw new Error('No microphone found. Please connect a microphone and try again.');
-        } else {
-          throw new Error(`Microphone error: ${micError.message}`);
-        }
-      }
-      
-      Logger.voice('Microphone access granted');
-      
-      // Start voice session with backend
-      const response = await fetch(`${backendUrl}/api/voice-session/start`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(user as any).access_token || 'demo'}`
-        },
-        body: JSON.stringify({
-          user_id: user.id,
-          bot_id: botId
-        })
       });
-
-      if (!response.ok) {
-        const errorData = await response.text();
-        Logger.error('Voice session start failed', { status: response.status, error: errorData });
-        throw new Error(`Voice session failed: ${response.status} - ${errorData}`);
+      
+      if (sessionError) {
+        throw new Error(`Session start failed: ${sessionError.message}`);
       }
       
-      const sessionData = await response.json();
-      Logger.voice('Voice session created', { sessionId: sessionData.session_id });
-      setVoiceSession(sessionData);
-
-      // Connect WebSocket with enhanced error handling
-      const getWebSocketUrl = () => {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-          ? 'localhost:8000' 
-          : `${window.location.hostname}:8000`;
-        return `${protocol}//${wsHost}/ws/${sessionData.session_id}`;
-      };
+      setSessionId(sessionData.sessionId);
       
-      const wsUrl = getWebSocketUrl();
-      Logger.debug('Connecting WebSocket', { url: wsUrl });
-      
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        Logger.voice('WebSocket connected successfully');
-        setIsListening(true);
-        setIsConnecting(false);
-        setupAudioRecording(stream);
-        
-        toast({
-          title: "Voice Session Started",
-          description: "You can now speak to your AI assistant!",
-        });
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          Logger.voice('WebSocket message received', { type: data.type });
-          
-          if (data.type === 'response') {
-            // Add bot response to messages
-            onAddMessage({
-              type: 'bot',
-              content: data.text,
-            });
-            
-            // Play audio if available
-            if (data.audio && !isMuted) {
-              Logger.voice('Playing audio response');
-              playAudioResponse(data.audio);
-            }
-          } else if (data.type === 'transcription') {
-            Logger.voice('Transcription received', { text: data.text });
-            setTranscription(data.text);
-          } else if (data.type === 'error') {
-            Logger.error('WebSocket error message', data);
-            toast({
-              variant: "destructive",
-              title: "Voice error",
-              description: data.error || "An error occurred during voice processing",
-            });
-          }
-        } catch (error) {
-          Logger.error('Error parsing WebSocket message', error);
+      // Get microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          sampleRate: 16000,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true
         }
-      };
-
-      ws.onerror = (error) => {
-        Logger.error('WebSocket error', error);
-        toast({
-          variant: "destructive",
-          title: "Connection error",
-          description: "Failed to maintain voice connection",
-        });
-      };
-
-      ws.onclose = (event) => {
-        Logger.voice('WebSocket closed', { code: event.code, reason: event.reason });
-        setIsListening(false);
-        setIsSpeaking(false);
-      };
-
-      // Setup audio recording
+      });
+      
+      setIsListening(true);
+      setConnecting(false);
+      
+      // Start audio recording
       setupAudioRecording(stream);
       
-    } catch (error: any) {
-      Logger.error('Voice session start error', error);
+      toast.success('Voice session started');
       
-      let errorMessage = error.message || "Failed to start voice session";
-      
-      // Enhanced error messages for common issues
-      if (error.message?.includes('Backend not responding')) {
-        errorMessage = "Backend server not running. Please start it with: cd backend && python start_backend.py";
-      } else if (error.message?.includes('getUserMedia')) {
-        errorMessage = "Microphone access denied. Please allow microphone access and try again.";
-      } else if (error.message?.includes('NetworkError')) {
-        errorMessage = "Network error. Please check your internet connection and backend server.";
-      }
-      
-      toast({
-        variant: "destructive",
-        title: "Voice session failed",
-        description: errorMessage,
-      });
-    } finally {
-      setIsConnecting(false);
+    } catch (error) {
+      console.error('Voice session error:', error);
+      toast.error('Voice session failed: ' + error.message);
+      setConnecting(false);
+      setIsListening(false);
     }
-  };
-
-  const stopVoiceSession = async () => {
-    if (wsRef.current) {
-      wsRef.current.close();
-    }
-    
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-    }
-    
-    if (voiceSession) {
-      try {
-        await fetch(`${backendUrl}/api/voice-session/${voiceSession.session_id}`, {
-          method: 'DELETE'
-        });
-      } catch (error) {
-        console.error('Error ending voice session:', error);
-      }
-    }
-    
-    setIsListening(false);
-    setIsSpeaking(false);
-    setVoiceSession(null);
   };
 
   const setupAudioRecording = (stream: MediaStream) => {
-    const mediaRecorder = new MediaRecorder(stream);
-    mediaRecorderRef.current = mediaRecorder;
+    const mediaRecorder = new MediaRecorder(stream, {
+      mimeType: 'audio/webm'
+    });
     
-    const audioChunks: BlobPart[] = [];
+    mediaRecorderRef.current = mediaRecorder;
+    mediaStreamRef.current = stream;
+    
+    let audioChunks: Blob[] = [];
     
     mediaRecorder.ondataavailable = (event) => {
-      audioChunks.push(event.data);
+      if (event.data.size > 0) {
+        audioChunks.push(event.data);
+      }
     };
     
     mediaRecorder.onstop = async () => {
-      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-      const reader = new FileReader();
-      
-      reader.onloadend = () => {
-        const base64Audio = (reader.result as string).split(',')[1];
+      if (audioChunks.length > 0 && user) {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const reader = new FileReader();
         
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({
-            type: 'audio',
-            audio: base64Audio
-          }));
-        }
-      };
+        reader.onload = async () => {
+          const base64Audio = (reader.result as string).split(',')[1];
+          
+          try {
+            // Step 1: Convert speech to text
+            const { data: sttData, error: sttError } = await supabase.functions.invoke('speech-to-text', {
+              body: { audio: base64Audio }
+            });
+            
+            if (sttError || !sttData.text.trim()) {
+              console.log('No speech detected or STT error:', sttError);
+              return;
+            }
+            
+            const userMessage = {
+              role: 'user' as const,
+              content: sttData.text,
+              type: 'user' as const
+            };
+            
+            onAddMessage(userMessage);
+            setTranscription(sttData.text);
+            
+            // Step 2: Get AI response
+            const conversationHistory = messages.slice(-10); // Last 10 messages for context
+            const { data: aiData, error: aiError } = await supabase.functions.invoke('ai-conversation', {
+              body: {
+                message: sttData.text,
+                botId: activeBot.id,
+                userId: user.id,
+                conversationHistory
+              }
+            });
+            
+            if (aiError) {
+              throw new Error(`AI response failed: ${aiError.message}`);
+            }
+            
+            const assistantMessage = {
+              role: 'assistant' as const,
+              content: aiData.response,
+              type: 'bot' as const
+            };
+            
+            onAddMessage(assistantMessage);
+            
+            // Step 3: Convert AI response to speech and play
+            if (activeBot.auto_speak) {
+              const { data: ttsData, error: ttsError } = await supabase.functions.invoke('text-to-speech', {
+                body: {
+                  text: aiData.response,
+                  voice: activeBot.voice
+                }
+              });
+              
+              if (!ttsError && ttsData.audio) {
+                playAudioResponse(ttsData.audio);
+              }
+            }
+            
+            // Clear transcription after processing
+            setTimeout(() => setTranscription(''), 2000);
+            
+          } catch (error) {
+            console.error('Voice processing error:', error);
+            toast.error('Voice processing failed');
+          }
+        };
+        
+        reader.readAsDataURL(audioBlob);
+      }
       
-      reader.readAsDataURL(audioBlob);
-      audioChunks.length = 0;
+      audioChunks = [];
     };
     
     // Record in chunks for real-time processing
@@ -341,16 +193,58 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
       if (mediaRecorder.state === 'recording') {
         mediaRecorder.stop();
         setTimeout(() => {
-          if (isListening) {
+          if (isListening && mediaRecorder.state === 'inactive') {
             mediaRecorder.start();
-            setTimeout(recordChunk, 1000); // 1 second chunks
+            setTimeout(recordChunk, 3000); // 3-second chunks
           }
         }, 100);
       }
     };
     
     mediaRecorder.start();
-    setTimeout(recordChunk, 1000);
+    setTimeout(recordChunk, 3000);
+  };
+
+  const stopVoiceSession = async () => {
+    try {
+      if (sessionId && user) {
+        // Save conversation before ending session
+        await supabase.functions.invoke('voice-session', {
+          body: {
+            action: 'save',
+            sessionId,
+            botId: activeBot.id,
+            userId: user.id,
+            messages
+          }
+        });
+        
+        // End session
+        await supabase.functions.invoke('voice-session', {
+          body: {
+            action: 'end',
+            sessionId,
+            userId: user.id
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error ending voice session:', error);
+    }
+    
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+    }
+    
+    setIsListening(false);
+    setConnecting(false);
+    setSessionId(null);
+    setTranscription('');
+    toast.success('Voice session ended');
   };
 
   const playAudioResponse = (audioData: string) => {
@@ -358,6 +252,7 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
     
     try {
       const audio = new Audio(`data:audio/mp3;base64,${audioData}`);
+      audioRef.current = audio;
       
       audio.onended = () => {
         setIsSpeaking(false);
@@ -365,11 +260,15 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
       
       audio.onerror = () => {
         setIsSpeaking(false);
+        console.error('Error playing audio response');
       };
       
-      audio.play();
+      audio.play().catch(error => {
+        console.error('Error playing audio:', error);
+        setIsSpeaking(false);
+      });
     } catch (error) {
-      console.error('Error playing audio:', error);
+      console.error('Error creating audio:', error);
       setIsSpeaking(false);
     }
   };
@@ -384,21 +283,70 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
 
   const handleMuteToggle = () => {
     setIsMuted(!isMuted);
+    if (audioRef.current) {
+      audioRef.current.muted = !isMuted;
+    }
   };
 
   const handleInputModeToggle = () => {
     setInputMode(inputMode === 'voice' ? 'text' : 'voice');
   };
 
-  const sendTextMessage = () => {
-    if (!textInput.trim()) return;
+  const sendTextMessage = async () => {
+    if (!textInput.trim() || !user) return;
     
-    onAddMessage({
-      type: 'user',
+    const userMessage = {
+      role: 'user' as const,
       content: textInput,
-    });
+      type: 'user' as const
+    };
     
+    onAddMessage(userMessage);
+    const currentInput = textInput;
     setTextInput('');
+    
+    try {
+      // Get AI response for text input
+      const conversationHistory = messages.slice(-10);
+      const { data: aiData, error: aiError } = await supabase.functions.invoke('ai-conversation', {
+        body: {
+          message: currentInput,
+          botId: activeBot.id,
+          userId: user.id,
+          conversationHistory
+        }
+      });
+      
+      if (aiError) {
+        throw new Error(`AI response failed: ${aiError.message}`);
+      }
+      
+      const assistantMessage = {
+        role: 'assistant' as const,
+        content: aiData.response,
+        type: 'bot' as const
+      };
+      
+      onAddMessage(assistantMessage);
+      
+      // Convert to speech if auto-speak is enabled
+      if (activeBot.auto_speak) {
+        const { data: ttsData, error: ttsError } = await supabase.functions.invoke('text-to-speech', {
+          body: {
+            text: aiData.response,
+            voice: activeBot.voice
+          }
+        });
+        
+        if (!ttsError && ttsData.audio) {
+          playAudioResponse(ttsData.audio);
+        }
+      }
+      
+    } catch (error) {
+      console.error('Text message error:', error);
+      toast.error('Failed to send message');
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -408,210 +356,143 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
     }
   };
 
-
-  const handleSaveAPIKey = async (service: string, apiKey: string) => {
-    try {
-      await saveAPIKey(service, apiKey);
-      toast({
-        title: "API Key saved",
-        description: `${service} API key has been saved securely`,
-      });
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Failed to save API key",
-        description: error.message || "An error occurred while saving the API key",
-      });
-    }
-  };
-
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
-  }, [messages]);
-
   return (
-    <div className="h-screen bg-background flex flex-col">{/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0">{/* Header */}
-        <div className="h-16 border-b border-border bg-background/80 backdrop-blur-sm flex items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold text-foreground">{botName}</h1>
-            {isConnecting && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Connecting...
-              </div>
-            )}
-          </div>
-          
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSettingsOpen(true)}
-            className="gap-2"
+    <div className="flex flex-col h-full bg-gradient-to-br from-background via-background/95 to-primary/5">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b border-border/50">
+        <h1 className="text-xl font-semibold text-foreground">{botName}</h1>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setSettingsOpen(true)}
+          className="gap-2"
+        >
+          <Settings className="w-4 h-4" />
+          Settings
+        </Button>
+      </div>
+
+      {/* Chat History */}
+      <div className="flex-1 min-h-0">
+        <ChatHistory messages={messages} onClearMessages={() => {}} />
+      </div>
+
+      {/* Real-time transcription */}
+      {transcription && (
+        <div className="px-4 py-2">
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-sm text-muted-foreground italic"
           >
-            <Settings className="w-4 h-4" />
-            Settings
-          </Button>
+            Transcribing: {transcription}
+          </motion.div>
         </div>
+      )}
 
-        {/* Chat Area */}
-        <div className="flex-1 flex flex-col relative">
-          <ScrollArea ref={chatContainerRef} className="flex-1 p-4">
-            <div className="max-w-4xl mx-auto space-y-6">
-              {messages.length === 0 ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-center py-12"
-                >
-                  <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
-                    <MessageSquare className="w-12 h-12 text-primary" />
-                  </div>
-                  <h3 className="text-xl font-semibold text-foreground mb-2">
-                    Start a conversation with {botName}
-                  </h3>
-                  <p className="text-muted-foreground">
-                    Click the microphone to speak or switch to text mode
-                  </p>
-                </motion.div>
-              ) : (
-                messages.map((message) => (
-                  <ChatBubble key={message.id} message={message} />
-                ))
-              )}
-              
-              {/* Real-time transcription */}
-              {transcription && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex justify-end"
-                >
-                  <div className="bg-primary/20 text-primary px-3 py-2 rounded-lg text-sm">
-                    {transcription}
-                  </div>
-                </motion.div>
-              )}
+      {/* Input Area */}
+      <div className="p-4 border-t border-border/50 bg-background/80 backdrop-blur-sm">
+        {inputMode === 'voice' ? (
+          <div className="flex flex-col items-center space-y-4">
+            {/* Voice Controls */}
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleMuteToggle}
+                className={`rounded-full ${isMuted ? 'text-destructive' : ''}`}
+              >
+                {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+              </Button>
+
+              <Button
+                onClick={handleVoiceToggle}
+                disabled={connecting}
+                size="lg"
+                className={`rounded-full w-16 h-16 ${
+                  isListening 
+                    ? 'bg-destructive hover:bg-destructive/90' 
+                    : 'bg-primary hover:bg-primary/90'
+                }`}
+              >
+                {connecting ? (
+                  <div className="animate-spin rounded-full h-6 w-6 border-2 border-background border-t-transparent" />
+                ) : isListening ? (
+                  <PhoneOff className="w-6 h-6" />
+                ) : (
+                  <Phone className="w-6 h-6" />
+                )}
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleInputModeToggle}
+                className="rounded-full"
+              >
+                <MessageSquare className="w-5 h-5" />
+              </Button>
             </div>
-          </ScrollArea>
 
-          {/* Bottom Bar */}
-          <div className="border-t border-border bg-background/95 backdrop-blur-sm p-4">
-            <div className="max-w-4xl mx-auto">
-              {inputMode === 'voice' ? (
-                <div className="flex flex-col items-center space-y-4">
-                  {/* Voice Visualization */}
-                  <VoiceVisualization 
-                    isListening={isListening}
-                    isSpeaking={isSpeaking}
-                    isMuted={isMuted}
-                    isConnected={!isConnecting}
-                    onToggleListening={handleVoiceToggle}
-                    onToggleMute={handleMuteToggle}
-                    onStop={() => setIsListening(false)}
-                    className="scale-75"
-                  />
+            {/* Voice Visualization */}
+            <VoiceVisualization 
+              isListening={isListening}
+              isSpeaking={isSpeaking}
+              isMuted={isMuted}
+              isConnected={!!sessionId}
+              onToggleListening={handleVoiceToggle}
+              onToggleMute={handleMuteToggle}
+              onStop={stopVoiceSession}
+            />
 
-                  {/* Controls */}
-                  <div className="flex items-center gap-4">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleMuteToggle}
-                      className={cn(
-                        "h-10 w-10 rounded-full",
-                        isMuted && "bg-destructive/20 text-destructive"
-                      )}
-                    >
-                      {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                    </Button>
-
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleInputModeToggle}
-                      className="h-10 w-10 rounded-full"
-                    >
-                      <MessageSquare className="h-4 w-4" />
-                    </Button>
-
-                    {(isListening || isSpeaking) && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setIsListening(false)}
-                        className="h-10 w-10 rounded-full bg-destructive/20 text-destructive hover:bg-destructive/30"
-                      >
-                        <Square className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Transcription display */}
-                  {isListening && (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="text-center"
-                    >
-                      <p className="text-sm text-muted-foreground">
-                        {transcription || "Listening..."}
-                      </p>
-                    </motion.div>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-end gap-3">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleInputModeToggle}
-                    className="h-10 w-10 rounded-full shrink-0"
-                  >
-                    <Mic className="h-4 w-4" />
-                  </Button>
-                  
-                  <div className="flex-1 relative">
-                    <textarea
-                      value={textInput}
-                      onChange={(e) => setTextInput(e.target.value)}
-                      onKeyPress={handleKeyPress}
-                      placeholder="Type a message..."
-                      className="w-full min-h-[44px] max-h-32 px-4 py-3 pr-12 rounded-2xl border border-border bg-background/50 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                      rows={1}
-                    />
-                    <Button
-                      size="sm"
-                      onClick={sendTextMessage}
-                      disabled={!textInput.trim()}
-                      className="absolute right-2 bottom-2 h-8 w-8 rounded-full p-0"
-                    >
-                      <Send className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              )}
+            {/* Status */}
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">
+                {connecting ? 'Connecting...' : 
+                 isListening ? 'Listening...' : 
+                 isSpeaking ? 'Speaking...' : 
+                 'Click to start voice conversation'}
+              </p>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleInputModeToggle}
+              className="rounded-full"
+            >
+              <Mic className="w-5 h-5" />
+            </Button>
+            
+            <div className="flex-1 flex gap-2">
+              <Textarea
+                value={textInput}
+                onChange={(e) => setTextInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Type your message..."
+                className="flex-1 min-h-[44px] resize-none"
+                rows={1}
+              />
+              <Button
+                onClick={sendTextMessage}
+                disabled={!textInput.trim()}
+                size="sm"
+              >
+                Send
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Settings Panel */}
       <SettingsPanel
         isOpen={settingsOpen}
         onToggle={() => setSettingsOpen(false)}
-        onShowAPIKeyModal={(service) => setApiKeyModal({ isOpen: true, service })}
-      />
-
-      {/* API Key Modal */}
-      <APIKeyModal
-        isOpen={apiKeyModal.isOpen}
-        onClose={() => setApiKeyModal({ isOpen: false, service: null })}
-        service={apiKeyModal.service}
-        onSave={handleSaveAPIKey}
+        activeBot={activeBot}
+        onUpdateBot={onUpdateBot}
       />
     </div>
   );
