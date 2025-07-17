@@ -516,9 +516,9 @@ Guidelines:
 
 Current conversation context: {len(messages)} previous messages"""
         
-        # Initialize model with tools
+        # Initialize model with tools (using Gemini 2.0 Flash for enhanced performance)
         model = genai.GenerativeModel(
-            model_name=bot_config.get("model", "gemini-1.5-flash"),
+            model_name="gemini-2.0-flash-exp",
             tools=available_tools if available_tools else None
         )
         

@@ -26,12 +26,63 @@ class GmailTools:
         ]
         
     async def authenticate(self, user_id: str) -> bool:
-        """Authenticate with Gmail API"""
+        """Authenticate with Gmail API using stored OAuth tokens"""
         try:
-            # TODO: Implement OAuth flow for user authentication
-            # For now, return True to indicate authentication success
-            logger.info(f"Gmail authentication for user {user_id}")
+            from .supabase_client import supabase_client
+            from .encryption import encryption_manager
+            
+            # Get encrypted OAuth token from database
+            response = supabase_client.table('user_api_keys').select('*').eq('user_id', user_id).eq('service', 'google_oauth').execute()
+            
+            if not response.data:
+                logger.warning(f"No Google OAuth token found for user {user_id}")
+                return False
+            
+            # Decrypt token data
+            encrypted_data = response.data[0]['encrypted_data']
+            token_data = encryption_manager.decrypt(encrypted_data)
+            
+            if not token_data:
+                logger.error("Failed to decrypt Google OAuth token")
+                return False
+            
+            import json
+            token_info = json.loads(token_data)
+            
+            # Create credentials object
+            self.credentials = Credentials(
+                token=token_info.get('access_token'),
+                refresh_token=token_info.get('refresh_token'),
+                token_uri=token_info.get('token_uri', 'https://oauth2.googleapis.com/token'),
+                client_id=token_info.get('client_id'),
+                client_secret=token_info.get('client_secret'),
+                scopes=self.scopes
+            )
+            
+            # Refresh if needed
+            if self.credentials.expired:
+                self.credentials.refresh(Request())
+                
+                # Update stored token if refreshed
+                updated_data = {
+                    'access_token': self.credentials.token,
+                    'refresh_token': self.credentials.refresh_token,
+                    'client_id': token_info.get('client_id'),
+                    'client_secret': token_info.get('client_secret'),
+                    'token_uri': self.credentials.token_uri
+                }
+                
+                encrypted_updated = encryption_manager.encrypt(json.dumps(updated_data))
+                if encrypted_updated:
+                    supabase_client.table('user_api_keys').update({
+                        'encrypted_data': encrypted_updated
+                    }).eq('user_id', user_id).eq('service', 'google_oauth').execute()
+            
+            # Build Gmail service
+            self.service = build('gmail', 'v1', credentials=self.credentials)
+            logger.info(f"Gmail authentication successful for user {user_id}")
             return True
+            
         except Exception as e:
             logger.error(f"Gmail authentication failed: {e}")
             return False
@@ -39,6 +90,10 @@ class GmailTools:
     async def send_email(self, parameters: Dict[str, Any], user_id: str) -> str:
         """Send an email via Gmail"""
         try:
+            # Authenticate first
+            if not await self.authenticate(user_id):
+                return "Error: Gmail authentication failed. Please reconnect your Google account."
+            
             to_email = parameters.get('to')
             subject = parameters.get('subject')
             body = parameters.get('body')
@@ -58,12 +113,22 @@ class GmailTools:
             # Add body
             message.attach(MIMEText(body, 'plain'))
             
-            # TODO: Implement actual Gmail API call
-            # For now, return a mock response
-            logger.info(f"Would send email to {to_email} with subject '{subject}'")
+            # Convert to raw format
+            raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
             
+            # Send email via Gmail API
+            result = self.service.users().messages().send(
+                userId='me',
+                body={'raw': raw_message}
+            ).execute()
+            
+            logger.info(f"Email sent successfully to {to_email}, message ID: {result['id']}")
             return f"✅ Email sent successfully to {to_email}"
             
+        except HttpError as e:
+            error_detail = str(e)
+            logger.error(f"Gmail API error: {error_detail}")
+            return f"Error sending email: {error_detail}"
         except Exception as e:
             logger.error(f"Error sending email: {e}")
             return f"Error sending email: {str(e)}"
@@ -71,34 +136,50 @@ class GmailTools:
     async def read_emails(self, parameters: Dict[str, Any], user_id: str) -> str:
         """Read recent emails from Gmail"""
         try:
+            # Authenticate first
+            if not await self.authenticate(user_id):
+                return "Error: Gmail authentication failed. Please reconnect your Google account."
+            
             query = parameters.get('query', 'is:unread')
-            max_results = parameters.get('max_results', 10)
+            max_results = min(parameters.get('max_results', 10), 20)  # Limit to 20
             
-            # TODO: Implement actual Gmail API call
-            # For now, return mock emails
-            mock_emails = [
-                {
-                    'subject': 'Project Update Required',
-                    'from': 'team@company.com',
-                    'snippet': 'Please review the latest project updates and provide feedback...',
-                    'date': '2024-01-15 10:30'
-                },
-                {
-                    'subject': 'Meeting Reminder',
-                    'from': 'calendar@company.com',
-                    'snippet': 'You have a meeting scheduled for tomorrow at 2 PM...',
-                    'date': '2024-01-15 09:15'
-                },
-                {
-                    'subject': 'Weekly Report',
-                    'from': 'reports@company.com',
-                    'snippet': 'Your weekly analytics report is ready for review...',
-                    'date': '2024-01-14 17:45'
+            # Get messages list
+            result = self.service.users().messages().list(
+                userId='me',
+                q=query,
+                maxResults=max_results
+            ).execute()
+            
+            messages = result.get('messages', [])
+            
+            if not messages:
+                return f"📧 No emails found for query: '{query}'"
+            
+            email_list = []
+            for message in messages:
+                # Get message details
+                msg = self.service.users().messages().get(
+                    userId='me',
+                    id=message['id'],
+                    format='metadata',
+                    metadataHeaders=['From', 'Subject', 'Date']
+                ).execute()
+                
+                # Extract headers
+                headers = {h['name']: h['value'] for h in msg['payload'].get('headers', [])}
+                
+                email_info = {
+                    'subject': headers.get('Subject', 'No Subject'),
+                    'from': headers.get('From', 'Unknown Sender'),
+                    'date': headers.get('Date', ''),
+                    'snippet': msg.get('snippet', ''),
+                    'id': message['id']
                 }
-            ]
+                email_list.append(email_info)
             
+            # Format response
             result = f"📧 Recent emails (query: '{query}'):\n\n"
-            for i, email in enumerate(mock_emails[:max_results], 1):
+            for i, email in enumerate(email_list, 1):
                 result += f"{i}. **{email['subject']}**\n"
                 result += f"   From: {email['from']}\n"
                 result += f"   Date: {email['date']}\n"
@@ -106,6 +187,10 @@ class GmailTools:
             
             return result
             
+        except HttpError as e:
+            error_detail = str(e)
+            logger.error(f"Gmail API error: {error_detail}")
+            return f"Error reading emails: {error_detail}"
         except Exception as e:
             logger.error(f"Error reading emails: {e}")
             return f"Error reading emails: {str(e)}"
