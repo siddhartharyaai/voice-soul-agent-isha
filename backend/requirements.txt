@@ -1,24 +1,60 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+# FastAPI and core dependencies
+fastapi==0.110.0
+uvicorn[standard]==0.27.0
 websockets==12.0
-httpx==0.25.2
+httpx==0.26.0
 python-multipart==0.0.6
-pydantic==2.5.0
+pydantic==2.6.0
+python-dotenv==1.0.0
+aiofiles==23.2.1
 
-# Voice processing
-livekit==0.10.1
-livekit-api==0.5.4
-deepgram-sdk==3.2.7
-google-generativeai==0.3.2
+# Voice processing and LiveKit
+livekit==0.11.1
+livekit-api==0.6.0
+deepgram-sdk==3.3.6
 
 # Audio processing
-numpy==1.24.3
+numpy==1.26.3
 scipy==1.11.4
 librosa==0.10.1
 soundfile==0.12.1
 webrtcvad==2.0.10
+silero-vad==4.0.0
+
+# Google AI and APIs
+google-generativeai==0.4.0
+google-api-python-client==2.117.0
+google-auth-oauthlib==1.2.0
+google-auth==2.27.0
+
+# Third-party integrations
+notion-client==2.2.1
+perplexity-ai==0.1.5
+openai==1.10.0
+slack-sdk==3.26.2
+todoist-api-python==2.1.4
+PyGithub==2.1.1
+spotipy==2.23.0
+requests==2.31.0
+
+# Weather and news
+openweathermap-python-api==1.1.0
+newsapi-python==0.2.7
+
+# Security and encryption
+cryptography==42.0.2
+bcrypt==4.1.2
+passlib[bcrypt]==1.7.4
+
+# Database and storage
+supabase==2.3.1
 
 # Utilities
-python-dotenv==1.0.0
-aiofiles==23.2.1
-Pillow==10.1.0
+uuid==1.30
+tenacity==8.2.3
+validators==0.22.0
+python-jose[cryptography]==3.3.0
+
+# Monitoring and logging
+structlog==23.2.0
+colorama==0.4.6
