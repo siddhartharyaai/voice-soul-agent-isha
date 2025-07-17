@@ -1,9 +1,9 @@
 project_id = "nlxpyaeufqabcyimlohn"
 
-[functions.voice-test]
+[functions.voice-echo]
 verify_jwt = false
 
-[functions.openai-realtime]
+[functions.realtime-voice]
 verify_jwt = false
 
 [functions.speech-to-text]
@@ -15,5 +15,20 @@ verify_jwt = false
 [functions.voice-session]
 verify_jwt = false
 
-[functions.realtime-voice]
+[functions.openai-realtime]
+verify_jwt = false
+
+[functions.ai-conversation]
+verify_jwt = false
+
+[functions.api-keys]
+verify_jwt = false
+
+[functions.get-secret]
+verify_jwt = false
+
+[functions.oauth-handler]
+verify_jwt = false
+
+[functions.voice-test]
 verify_jwt = false
