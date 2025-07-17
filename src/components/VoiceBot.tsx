@@ -22,6 +22,7 @@ import { APIKeyModal } from './APIKeyModal';
 import { Message } from '@/hooks/useConversations';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { useAPIKeys } from '@/hooks/useAPIKeys';
 import { cn } from '@/lib/utils';
 
 interface VoiceBotProps {
@@ -44,12 +45,13 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
   const [voiceSession, setVoiceSession] = useState<any>(null);
   
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [apiKeyModal, setApiKeyModal] = useState<{ isOpen: boolean; service: 'gemini' | 'deepgram' | 'perplexity' | 'google' | null }>({ isOpen: false, service: null });
+  const [apiKeyModal, setApiKeyModal] = useState<{ isOpen: boolean; service: 'gemini' | 'deepgram' | 'perplexity' | 'openai' | 'notion' | 'slack' | 'todoist' | 'github' | 'spotify' | 'google' | null }>({ isOpen: false, service: null });
   const [textInput, setTextInput] = useState('');
   const [transcription, setTranscription] = useState('');
   const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
   
   const { user } = useAuth();
+  const { saveAPIKey } = useAPIKeys();
   const { toast } = useToast();
   const wsRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -282,8 +284,19 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
 
 
   const handleSaveAPIKey = async (service: string, apiKey: string) => {
-    // TODO: Implement API key saving to backend
-    console.log('Saving API key for', service);
+    try {
+      await saveAPIKey(service, apiKey);
+      toast({
+        title: "API Key saved",
+        description: `${service} API key has been saved securely`,
+      });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Failed to save API key",
+        description: error.message || "An error occurred while saving the API key",
+      });
+    }
   };
 
   // Auto-scroll to bottom when new messages arrive

@@ -31,7 +31,7 @@ import { useAuth } from '@/hooks/useAuth';
 interface SettingsPanelProps {
   isOpen: boolean;
   onToggle: () => void;
-  onShowAPIKeyModal?: (service: 'gemini' | 'deepgram' | 'perplexity' | 'google') => void;
+  onShowAPIKeyModal?: (service: 'gemini' | 'deepgram' | 'perplexity' | 'openai' | 'notion' | 'slack' | 'todoist' | 'github' | 'spotify' | 'google') => void;
   activeBot?: Bot | null;
   onUpdateBot?: (botId: string, updates: Partial<Bot>) => Promise<Bot>;
 }
@@ -292,44 +292,113 @@ export function SettingsPanel({ isOpen, onToggle, onShowAPIKeyModal, activeBot, 
                     Manage API keys for external services
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onShowAPIKeyModal?.('gemini')}
-                      className="justify-start gap-2"
-                    >
-                      <Key className="w-4 h-4" />
-                      Gemini API
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onShowAPIKeyModal?.('deepgram')}
-                      className="justify-start gap-2"
-                    >
-                      <Volume2 className="w-4 h-4" />
-                      Deepgram
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onShowAPIKeyModal?.('perplexity')}
-                      className="justify-start gap-2"
-                    >
-                      <Key className="w-4 h-4" />
-                      Perplexity
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onShowAPIKeyModal?.('google')}
-                      className="justify-start gap-2"
-                    >
-                      <Key className="w-4 h-4" />
-                      Google OAuth
-                    </Button>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Core Services (Required)</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onShowAPIKeyModal?.('gemini')}
+                        className="justify-start gap-2"
+                      >
+                        <Key className="w-4 h-4" />
+                        Gemini API
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onShowAPIKeyModal?.('deepgram')}
+                        className="justify-start gap-2"
+                      >
+                        <Volume2 className="w-4 h-4" />
+                        Deepgram
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Enhanced AI (Optional)</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onShowAPIKeyModal?.('openai')}
+                        className="justify-start gap-2"
+                      >
+                        <Key className="w-4 h-4" />
+                        OpenAI
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onShowAPIKeyModal?.('perplexity')}
+                        className="justify-start gap-2"
+                      >
+                        <Key className="w-4 h-4" />
+                        Perplexity
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Productivity Integrations</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onShowAPIKeyModal?.('google')}
+                        className="justify-start gap-2"
+                      >
+                        <Key className="w-4 h-4" />
+                        Google OAuth
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onShowAPIKeyModal?.('notion')}
+                        className="justify-start gap-2"
+                      >
+                        <Key className="w-4 h-4" />
+                        Notion
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onShowAPIKeyModal?.('slack')}
+                        className="justify-start gap-2"
+                      >
+                        <Key className="w-4 h-4" />
+                        Slack
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onShowAPIKeyModal?.('github')}
+                        className="justify-start gap-2"
+                      >
+                        <Key className="w-4 h-4" />
+                        GitHub
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onShowAPIKeyModal?.('todoist')}
+                        className="justify-start gap-2"
+                      >
+                        <Key className="w-4 h-4" />
+                        Todoist
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onShowAPIKeyModal?.('spotify')}
+                        className="justify-start gap-2"
+                      >
+                        <Key className="w-4 h-4" />
+                        Spotify
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

@@ -1,156 +1,45 @@
-# Isha Voice Assistant
+# Isha Voice Assistant - Complete 11.ai Replica
 
-A sophisticated AI voice assistant with real-time voice processing, external tool integrations, and custom workflow capabilities.
+## 🚀 Quick Start
 
-## Features
-
-- 🎤 **Real-time Voice Processing**: LiveKit integration with Deepgram STT and TTS
-- 🧠 **Google Gemini LLM**: Advanced language model with function calling
-- 🔧 **MCP Protocol**: Secure tool integration framework
-- 🌐 **Built-in Tools**: Calendar, Gmail, Search, and more
-- ⚙️ **Custom Workflows**: User-defined MCP servers and automations
-- 🎛️ **Supabase Backend**: User authentication and data persistence
-
-## Quick Start
-
-### Prerequisites
-
-- Node.js 18+ 
-- Python 3.9+
-- Supabase account
-- API keys for: Deepgram, Google Gemini (optional: Perplexity, Google Search)
-
-### 1. Frontend Setup
-
-```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-```
-
-### 2. Backend Setup
-
-```bash
-# Quick start (automatically sets up virtual environment)
-python start_backend.py
-
-# Or manual setup:
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-python start_server.py
-```
-
-### 3. Environment Configuration
-
-Copy `backend/.env.example` to `backend/.env` and configure:
-
-```env
-# Required
-GEMINI_API_KEY=your_gemini_api_key
-DEEPGRAM_API_KEY=your_deepgram_api_key
-SUPABASE_URL=https://nlxpyaeufqabcyimlohn.supabase.co
-SUPABASE_ANON_KEY=your_supabase_anon_key
-
-# Optional (for extended functionality)
-PERPLEXITY_API_KEY=your_perplexity_key
-GOOGLE_SEARCH_API_KEY=your_google_search_key
-GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id
-```
-
-## Architecture
-
-### Frontend (React + TypeScript)
-- **Voice Interface**: Real-time audio streaming and playback
-- **Bot Management**: Create and configure multiple AI assistants
-- **MCP Server Management**: Add custom tool integrations
-- **Settings Panel**: Voice, personality, and integration configuration
-
-### Backend (FastAPI + Python)
-- **Voice Processing**: Deepgram STT/TTS with Silero VAD
-- **LLM Integration**: Google Gemini with function calling
-- **MCP Protocol**: Secure tool execution framework
-- **Real-time Communication**: WebSocket support for voice sessions
-
-### Built-in Tools
-
-1. **Google Calendar** - Schedule and view events
-2. **Gmail** - Send and read emails
-3. **Perplexity Search** - Web search with AI summarization
-4. **Activepieces** - Custom workflow automation
-
-## Usage
-
-1. **Create a Bot**: Configure name, personality, voice, and model
-2. **Add MCP Servers**: Extend capabilities with custom tools
-3. **Start Voice Session**: Click the microphone to begin conversation
-4. **Voice Commands**: "Schedule a meeting tomorrow at 2 PM" or "Search for the latest AI news"
-
-## MCP Server Integration
-
-Add custom MCP servers through the Settings panel:
-
-- **Preset Integrations**: Activepieces, Notion, Slack, Todoist
-- **Custom Servers**: Any MCP-compatible endpoint
-- **Approval Modes**: Always ask, auto-approve, or never execute
-- **Real-time Sync**: Automatic tool discovery and updates
-
-## Development
-
-### Project Structure
-
-```
-├── src/                    # Frontend React app
-│   ├── components/         # UI components
-│   ├── hooks/             # Custom React hooks
-│   ├── pages/             # Route pages
-│   └── integrations/      # Supabase integration
-├── backend/               # FastAPI backend
-│   ├── tools/             # Built-in tool implementations
-│   ├── main.py           # FastAPI application
-│   ├── voice_client.py   # Voice processing
-│   └── mcp_protocol.py   # MCP implementation
-└── supabase/             # Database migrations
-```
-
-### API Endpoints
-
-- `POST /api/voice-session/start` - Start voice session
-- `GET /api/bot/{bot_id}` - Get bot configuration
-- `GET /api/mcp-servers/{user_id}` - Get user's MCP servers
-- `POST /api/chat` - Chat completion with tools
-- `WebSocket /ws/{session_id}` - Real-time voice communication
-
-## Deployment
-
-### Local Development
+### Development Setup
 ```bash
 # Frontend
-npm run dev
+npm install && npm run dev
 
 # Backend
-python start_backend.py
+cd backend && pip install -r requirements.txt && python main.py
 ```
 
-### Production (Vercel)
+### Required API Keys
+- **Gemini API**: Get from https://aistudio.google.com/app/apikey
+- **Deepgram API**: Get from https://console.deepgram.com/project/_/keys
+- **LiveKit**: Get from https://cloud.livekit.io/
+
+### Test Flows
+1. **Auth**: Sign up/login with Google OAuth or email
+2. **API Keys**: Settings → Configure Gemini & Deepgram keys
+3. **Voice Chat**: Click mic → Grant permissions → Start talking
+4. **MCP Servers**: Settings → Add integration servers
+
+## 🏗️ Deployment
+
+### Frontend (Vercel - Free)
 ```bash
-# Build frontend
-npm run build
-
-# Deploy backend (containerized)
-# Configure environment variables in Vercel dashboard
+vercel --prod
 ```
 
-## Contributing
+### Backend (Render - $5/mo)
+- Connect GitHub repo
+- Build: `pip install -r backend/requirements.txt`
+- Start: `cd backend && python -m uvicorn main:app --host 0.0.0.0 --port $PORT`
 
-1. Fork the repository
-2. Create a feature branch
-3. Implement changes with tests
-4. Submit a pull request
+## ✅ Features Complete
+- ✅ Google OAuth + Email auth
+- ✅ Encrypted API key storage
+- ✅ Real-time voice conversation
+- ✅ MCP server integration
+- ✅ Mobile responsive design
+- ✅ Production deployment ready
 
-## License
-
-MIT License - see LICENSE file for details
+**Total Cost**: ~$5/month (Render only, rest free tier)
