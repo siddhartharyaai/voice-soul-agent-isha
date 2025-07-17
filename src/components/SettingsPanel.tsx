@@ -30,13 +30,13 @@ import { useAuth } from '@/hooks/useAuth';
 
 interface SettingsPanelProps {
   isOpen: boolean;
-  onClose: () => void;
-  onShowAPIKeyModal: (service: 'gemini' | 'deepgram' | 'perplexity' | 'google') => void;
+  onToggle: () => void;
+  onShowAPIKeyModal?: (service: 'gemini' | 'deepgram' | 'perplexity' | 'google') => void;
   activeBot?: Bot | null;
   onUpdateBot?: (botId: string, updates: Partial<Bot>) => Promise<Bot>;
 }
 
-export function SettingsPanel({ isOpen, onClose, onShowAPIKeyModal, activeBot, onUpdateBot }: SettingsPanelProps) {
+export function SettingsPanel({ isOpen, onToggle, onShowAPIKeyModal, activeBot, onUpdateBot }: SettingsPanelProps) {
   const [botName, setBotName] = useState('');
   const [personality, setPersonality] = useState('');
   const [voice, setVoice] = useState('');
@@ -80,7 +80,7 @@ export function SettingsPanel({ isOpen, onClose, onShowAPIKeyModal, activeBot, o
         wake_word: wakeWord,
         auto_speak: autoSpeak,
       });
-      onClose();
+      onToggle();
     } catch (error) {
       console.error('Error saving settings:', error);
     } finally {
@@ -129,7 +129,7 @@ export function SettingsPanel({ isOpen, onClose, onShowAPIKeyModal, activeBot, o
   };
 
   return (
-    <Sheet open={isOpen} onOpenChange={onClose}>
+    <Sheet open={isOpen} onOpenChange={onToggle}>
       <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
         <SheetHeader>
           <div className="flex items-center justify-between">
@@ -139,7 +139,7 @@ export function SettingsPanel({ isOpen, onClose, onShowAPIKeyModal, activeBot, o
                 Configure your assistant and integrations
               </SheetDescription>
             </div>
-            <Button variant="ghost" size="sm" onClick={onClose}>
+            <Button variant="ghost" size="sm" onClick={onToggle}>
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -297,7 +297,7 @@ export function SettingsPanel({ isOpen, onClose, onShowAPIKeyModal, activeBot, o
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => onShowAPIKeyModal('gemini')}
+                      onClick={() => onShowAPIKeyModal?.('gemini')}
                       className="justify-start gap-2"
                     >
                       <Key className="w-4 h-4" />
@@ -306,7 +306,7 @@ export function SettingsPanel({ isOpen, onClose, onShowAPIKeyModal, activeBot, o
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => onShowAPIKeyModal('deepgram')}
+                      onClick={() => onShowAPIKeyModal?.('deepgram')}
                       className="justify-start gap-2"
                     >
                       <Volume2 className="w-4 h-4" />
@@ -315,7 +315,7 @@ export function SettingsPanel({ isOpen, onClose, onShowAPIKeyModal, activeBot, o
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => onShowAPIKeyModal('perplexity')}
+                      onClick={() => onShowAPIKeyModal?.('perplexity')}
                       className="justify-start gap-2"
                     >
                       <Key className="w-4 h-4" />
@@ -324,7 +324,7 @@ export function SettingsPanel({ isOpen, onClose, onShowAPIKeyModal, activeBot, o
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => onShowAPIKeyModal('google')}
+                      onClick={() => onShowAPIKeyModal?.('google')}
                       className="justify-start gap-2"
                     >
                       <Key className="w-4 h-4" />
@@ -426,7 +426,7 @@ export function SettingsPanel({ isOpen, onClose, onShowAPIKeyModal, activeBot, o
               >
                 {saving ? 'Saving...' : 'Save Settings'}
               </Button>
-              <Button variant="outline" onClick={onClose}>
+              <Button variant="outline" onClick={onToggle}>
                 Cancel
               </Button>
             </div>

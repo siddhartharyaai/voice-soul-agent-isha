@@ -480,7 +480,7 @@ export function VoiceBot({ botName, botId, messages, onAddMessage, onSaveConvers
       {/* Settings Panel */}
       <SettingsPanel
         isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+        onToggle={() => setSettingsOpen(false)}
         onShowAPIKeyModal={(service) => setApiKeyModal({ isOpen: true, service })}
       />
 
