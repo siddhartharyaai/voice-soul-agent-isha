@@ -13,6 +13,7 @@ import { ChatHistory } from './ChatHistory';
 import { SettingsPanel } from './SettingsPanel';
 import { VoiceVisualization } from './VoiceVisualization';
 import { VoiceAudioManager, AudioPlaybackQueue, AudioChunk } from '@/utils/VoiceAudioManager';
+import { AudioQueue } from '@/utils/AudioQueue';
 
 interface RealtimeVoiceChatProps {
   botName: string;
@@ -47,7 +48,7 @@ export function RealtimeVoiceChat({
 
   const wsRef = useRef<WebSocket | null>(null);
   const voiceManagerRef = useRef<VoiceAudioManager | null>(null);
-  const audioQueueRef = useRef<AudioPlaybackQueue | null>(null);
+  const audioQueueRef = useRef<AudioQueue | null>(null);
   const { toast } = useToast();
   // Use the singleton voiceDebugger
 
@@ -61,7 +62,7 @@ export function RealtimeVoiceChat({
     voiceManagerRef.current?.stop();
     voiceManagerRef.current = null;
     
-    audioQueueRef.current?.destroy();
+    audioQueueRef.current?.stop();
     audioQueueRef.current = null;
     
     setIsConnected(false);
@@ -81,7 +82,7 @@ export function RealtimeVoiceChat({
 
     try {
       // Initialize audio playback queue
-      audioQueueRef.current = new AudioPlaybackQueue();
+      audioQueueRef.current = new AudioQueue();
       addDebugInfo('Audio playback queue initialized');
 
       // Initialize voice audio manager with VAD
@@ -94,7 +95,7 @@ export function RealtimeVoiceChat({
           
           // Interrupt any current audio playback
           if (audioQueueRef.current) {
-            audioQueueRef.current.interrupt();
+            audioQueueRef.current.stop();
             addDebugInfo('Interrupted AI speech');
           }
           
@@ -145,10 +146,8 @@ export function RealtimeVoiceChat({
         throw new Error('No valid session token');
       }
 
-      // Connect to realtime voice function - use project URL
-      const projectUrl = new URL(import.meta.env.VITE_SUPABASE_URL || 'https://nlxpyaeufqabcyimlohn.supabase.co');
-      const projectRef = projectUrl.hostname.split('.')[0];
-      const wsUrl = `wss://${projectRef}.supabase.co/functions/v1/realtime-voice`;
+      // Connect to realtime voice function - use direct project URL
+      const wsUrl = `wss://nlxpyaeufqabcyimlohn.supabase.co/functions/v1/realtime-voice`;
       
       console.log('🔥 CONNECTING TO REALTIME VOICE:', wsUrl);
       voiceDebugger.log('info', 'Connecting to realtime voice', { url: wsUrl });
@@ -182,12 +181,15 @@ export function RealtimeVoiceChat({
         addDebugInfo('WebSocket connected successfully');
         
         // Start voice session with auth token
-        wsRef.current!.send(JSON.stringify({
+        const sessionMessage = {
           type: 'start_session',
           botId: activeBot.id,
           userId: user.id,
           accessToken: session.access_token
-        }));
+        };
+        
+        console.log('🔥 SENDING SESSION START:', sessionMessage);
+        wsRef.current!.send(JSON.stringify(sessionMessage));
 
         // Start VAD
         voiceManagerRef.current?.start();
@@ -357,7 +359,7 @@ export function RealtimeVoiceChat({
       voiceManagerRef.current.interrupt();
     }
     if (audioQueueRef.current) {
-      audioQueueRef.current.interrupt();
+      audioQueueRef.current.stop();
     }
     addDebugInfo('Manual interrupt triggered');
   }, [addDebugInfo]);
@@ -367,28 +369,37 @@ export function RealtimeVoiceChat({
     setIsMuted(newMuted);
     
     if (newMuted && audioQueueRef.current) {
-      audioQueueRef.current.interrupt();
+      audioQueueRef.current.stop();
     }
     
     addDebugInfo(`Audio ${newMuted ? 'muted' : 'unmuted'}`);
   }, [isMuted, addDebugInfo]);
 
   const sendTextMessage = useCallback(async () => {
-    if (!textInput.trim() || !wsRef.current) return;
+    if (!textInput.trim()) return;
 
+    // Add user message immediately
     const userMessage = onAddMessage({
       content: textInput,
       type: 'user'
     });
 
+    const messageText = textInput;
     setTextInput('');
-    addDebugInfo(`Text message sent: "${textInput}"`);
+    addDebugInfo(`Text message sent: "${messageText}"`);
 
-    // Send to voice server for processing
-    wsRef.current.send(JSON.stringify({
-      type: 'text_message',
-      text: textInput
-    }));
+    // Send to voice server if connected
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const textMessage = {
+        type: 'text_message',
+        text: messageText
+      };
+      
+      console.log('🔥 SENDING TEXT MESSAGE:', textMessage);
+      wsRef.current.send(JSON.stringify(textMessage));
+    } else {
+      addDebugInfo('Not connected to voice server - message sent to chat only');
+    }
   }, [textInput, onAddMessage, addDebugInfo]);
 
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => {

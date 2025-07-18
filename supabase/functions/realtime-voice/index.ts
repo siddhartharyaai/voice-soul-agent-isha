@@ -362,11 +362,9 @@ serve(async (req) => {
         timestamp: new Date().toISOString()
       }))
 
-      // Generate speech if auto-speak is enabled
-      if (botConfig.auto_speak) {
-        console.log('Starting TTS generation...')
-        await generateSpeech(aiResponse)
-      }
+      // Always generate speech for voice bot
+      console.log('Starting TTS generation...')
+      await generateSpeech(aiResponse)
 
     } catch (error) {
       console.error('Error processing user message:', error)
