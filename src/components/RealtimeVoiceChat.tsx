@@ -173,7 +173,7 @@ export function RealtimeVoiceChat({
       wsRef.current.onopen = () => {
         console.log('🔥 REALTIME VOICE CONNECTED!');
         clearTimeout(connectionTimeout);
-        voiceDebugger.log('success', 'Realtime voice connected');
+        voiceDebugger.log('info', 'Realtime voice connected');
         setIsConnected(true);
         setConnectionStatus('connected');
         setVadStatus('listening');
@@ -219,9 +219,8 @@ export function RealtimeVoiceChat({
               if (data.is_final) {
                 // Add user message
                 const userMessage = onAddMessage({
-                  role: 'user' as const,
                   content: data.transcript,
-                  type: 'text'
+                  type: 'user'
                 });
                 setCurrentTranscript('');
                 addDebugInfo(`User message added: "${data.transcript}"`);
@@ -235,9 +234,8 @@ export function RealtimeVoiceChat({
               
               // Add AI message
               onAddMessage({
-                role: 'assistant' as const,
                 content: data.text,
-                type: 'text'
+                type: 'bot'
               });
               
               // Play audio
@@ -361,9 +359,8 @@ export function RealtimeVoiceChat({
     if (!textInput.trim() || !wsRef.current) return;
 
     const userMessage = onAddMessage({
-      role: 'user' as const,
       content: textInput,
-      type: 'text'
+      type: 'user'
     });
 
     setTextInput('');
