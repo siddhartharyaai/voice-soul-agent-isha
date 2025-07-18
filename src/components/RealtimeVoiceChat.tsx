@@ -5,14 +5,13 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Phone, PhoneOff, Mic, MicOff, Volume2, VolumeX, MessageSquare, Settings, Loader2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import { voiceDebugger } from '@/utils/VoiceDebugger';
 import type { Bot } from '@/hooks/useBots';
 import type { Message } from '@/hooks/useConversations';
 import { supabase } from '@/integrations/supabase/client';
 import { ChatHistory } from './ChatHistory';
 import { SettingsPanel } from './SettingsPanel';
 import { VoiceVisualization } from './VoiceVisualization';
-import { VoiceAudioManager, AudioPlaybackQueue, AudioChunk } from '@/utils/VoiceAudioManager';
+import { LiveKitVoiceManager, VoiceSession } from '@/utils/LiveKitVoiceManager';
 import { AudioQueue } from '@/utils/AudioQueue';
 
 interface RealtimeVoiceChatProps {
@@ -44,13 +43,11 @@ export function RealtimeVoiceChat({
   const [showSettings, setShowSettings] = useState(false);
   const [currentTranscript, setCurrentTranscript] = useState('');
   const [debugInfo, setDebugInfo] = useState<string[]>([]);
-  const [vadStatus, setVadStatus] = useState<'idle' | 'listening' | 'speaking'>('idle');
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const voiceManagerRef = useRef<VoiceAudioManager | null>(null);
+  const voiceManagerRef = useRef<LiveKitVoiceManager | null>(null);
+  const voiceSessionRef = useRef<VoiceSession | null>(null);
   const audioQueueRef = useRef<AudioQueue | null>(null);
   const { toast } = useToast();
-  // Use the singleton voiceDebugger
 
   const addDebugInfo = useCallback((info: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -59,7 +56,8 @@ export function RealtimeVoiceChat({
   }, []);
 
   const cleanup = useCallback(() => {
-    voiceManagerRef.current?.stop();
+    voiceSessionRef.current?.cleanup();
+    voiceSessionRef.current = null;
     voiceManagerRef.current = null;
     
     audioQueueRef.current?.stop();
@@ -67,73 +65,22 @@ export function RealtimeVoiceChat({
     
     setIsConnected(false);
     setConnectionStatus('disconnected');
-    setVadStatus('idle');
     setIsListening(false);
     setIsSpeaking(false);
+    setCurrentTranscript('');
   }, []);
 
   const startVoiceSession = useCallback(async () => {
     if (isConnected) return;
     
-    console.log('🎤 Starting voice session with VAD...');
-    voiceDebugger.log('info', 'Starting voice session with VAD');
+    console.log('🎤 Starting LiveKit voice session...');
     setConnectionStatus('connecting');
-    addDebugInfo('Initializing voice session...');
+    addDebugInfo('Creating LiveKit voice session...');
 
     try {
       // Initialize audio playback queue
       audioQueueRef.current = new AudioQueue();
       addDebugInfo('Audio playback queue initialized');
-
-      // Initialize voice audio manager with VAD
-      voiceManagerRef.current = new VoiceAudioManager({
-        onSpeechStart: () => {
-          console.log('🗣️ Speech detected by VAD');
-          setVadStatus('speaking');
-          setIsListening(true);
-          addDebugInfo('VAD: Speech started');
-          
-          // Interrupt any current audio playback
-          if (audioQueueRef.current) {
-            audioQueueRef.current.stop();
-            addDebugInfo('Interrupted AI speech');
-          }
-          
-          // Send interrupt signal to server
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({
-              type: 'interrupt'
-            }));
-          }
-        },
-        onSpeechEnd: () => {
-          console.log('🤐 Speech ended by VAD');
-          setVadStatus('listening');
-          setIsListening(false);
-          addDebugInfo('VAD: Speech ended');
-        },
-        onVADMisfire: () => {
-          console.log('🔄 VAD misfire detected');
-          addDebugInfo('VAD misfire detected');
-        },
-        onAudioChunk: (chunk: AudioChunk) => {
-          // Send audio chunk to server for STT
-          if (wsRef.current?.readyState === WebSocket.OPEN && vadStatus === 'speaking') {
-            const base64Audio = VoiceAudioManager.encodeAudioToBase64(chunk.data);
-            wsRef.current.send(JSON.stringify({
-              type: 'audio_chunk',
-              audio: base64Audio,
-              timestamp: chunk.timestamp
-            }));
-          }
-        },
-        positiveSpeechThreshold: 0.6,
-        negativeSpeechThreshold: 0.4,
-        minSpeechFrames: 6
-      });
-
-      await voiceManagerRef.current.initialize();
-      addDebugInfo('Voice manager initialized with VAD');
 
       // Get authenticated user
       const { data: { user } } = await supabase.auth.getUser();
@@ -141,200 +88,91 @@ export function RealtimeVoiceChat({
         throw new Error('User not authenticated');
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        throw new Error('No valid session token');
-      }
-
-      // Connect to realtime voice function - use direct project URL
-      const wsUrl = `wss://nlxpyaeufqabcyimlohn.supabase.co/functions/v1/realtime-voice`;
-      
-      console.log('🔥 CONNECTING TO REALTIME VOICE:', wsUrl);
-      voiceDebugger.log('info', 'Connecting to realtime voice', { url: wsUrl });
-      addDebugInfo('Connecting to realtime voice server...');
-
-      // Create WebSocket with auth headers
-      wsRef.current = new WebSocket(wsUrl);
-      
-      const connectionTimeout = setTimeout(() => {
-        if (wsRef.current && wsRef.current.readyState !== WebSocket.OPEN) {
-          console.log('🔥 CONNECTION TIMEOUT');
-          wsRef.current.close();
-          setConnectionStatus('error');
-          cleanup();
-          addDebugInfo('Connection timeout');
+      // Create LiveKit voice manager with callbacks
+      voiceManagerRef.current = new LiveKitVoiceManager({
+        onTranscript: (transcript: string, isFinal: boolean) => {
+          console.log('📝 Transcript:', transcript, 'Final:', isFinal);
+          setCurrentTranscript(isFinal ? '' : transcript);
+          addDebugInfo(`Transcript: "${transcript}" (final: ${isFinal})`);
+          
+          if (isFinal && transcript.trim().length > 2) {
+            // Add user message to chat
+            onAddMessage({
+              content: transcript,
+              type: 'user'
+            });
+            addDebugInfo(`User message added: "${transcript}"`);
+          }
+        },
+        onAIResponse: (response: string) => {
+          console.log('🤖 AI Response:', response);
+          addDebugInfo(`AI response: ${response}`);
+          
+          // Add AI message to chat
+          onAddMessage({
+            content: response,
+            type: 'bot'
+          });
+        },
+        onAudioResponse: (audio: string) => {
+          console.log('🔊 Audio response received');
+          setIsSpeaking(true);
+          addDebugInfo('Audio response received');
+          
+          // Play audio through queue
+          if (audioQueueRef.current && !isMuted) {
+            audioQueueRef.current.addToQueue(audio);
+          }
+          
+          // Auto-stop speaking after reasonable time
+          setTimeout(() => setIsSpeaking(false), 3000);
+        },
+        onError: (error: string) => {
+          console.error('❌ Voice error:', error);
+          addDebugInfo(`Error: ${error}`);
           toast({
-            title: "Connection Failed",
-            description: "Voice session connection timed out",
+            title: "Voice Error",
+            description: error,
             variant: "destructive",
           });
         }
-      }, 15000);
+      });
 
-      wsRef.current.onopen = () => {
-        console.log('🔥 REALTIME VOICE CONNECTED!');
-        clearTimeout(connectionTimeout);
-        voiceDebugger.log('info', 'Realtime voice connected');
-        setIsConnected(true);
-        setConnectionStatus('connected');
-        setVadStatus('listening');
-        addDebugInfo('WebSocket connected successfully');
-        
-        // Start voice session with auth token
-        const sessionMessage = {
-          type: 'start_session',
-          botId: activeBot.id,
-          userId: user.id,
-          accessToken: session.access_token
-        };
-        
-        console.log('🔥 SENDING SESSION START:', sessionMessage);
-        wsRef.current!.send(JSON.stringify(sessionMessage));
+      // Create voice session
+      const session = await voiceManagerRef.current.createSession(activeBot.id, user.id);
+      voiceSessionRef.current = session;
+      
+      console.log('✅ LiveKit voice session created');
+      addDebugInfo(`Session created with bot: ${session.botConfig.name}`);
+      
+      setIsConnected(true);
+      setConnectionStatus('connected');
+      setIsListening(true);
 
-        // Start VAD
-        voiceManagerRef.current?.start();
-        addDebugInfo('VAD started - listening for speech');
-
-        toast({
-          title: "Connected",
-          description: "Real-time voice chat started",
-        });
-      };
-
-      wsRef.current.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('🔥 RECEIVED:', data.type);
-          
-          switch (data.type) {
-            case 'connection_ready':
-              console.log('✅ Connection ready');
-              addDebugInfo('Connection ready');
-              break;
-
-            case 'stt_ready':
-              console.log('✅ STT ready');
-              addDebugInfo('Speech-to-text ready');
-              break;
-
-            case 'user_message':
-              console.log('📝 User message processed:', data.content);
-              addDebugInfo(`User message processed: "${data.content}"`);
-              break;
-              
-            case 'session_started':
-              console.log('✅ Session started:', data.sessionId);
-              addDebugInfo(`Session started: ${data.sessionId}`);
-              break;
-              
-            case 'transcript':
-              setCurrentTranscript(data.transcript);
-              addDebugInfo(`Transcript: "${data.transcript}" (final: ${data.is_final})`);
-              
-              if (data.is_final) {
-                // Add user message
-                const userMessage = onAddMessage({
-                  content: data.transcript,
-                  type: 'user'
-                });
-                setCurrentTranscript('');
-                addDebugInfo(`User message added: "${data.transcript}"`);
-              }
-              break;
-              
-            case 'ai_response':
-              console.log('🤖 Received AI text response');
-              addDebugInfo(`AI response: ${data.content}`);
-              
-              // Add AI message to chat
-              onAddMessage({
-                content: data.content,
-                type: 'bot'
-              });
-              break;
-
-            case 'audio_response':
-              console.log('🔊 Received audio response');
-              setIsSpeaking(true);
-              addDebugInfo(`Received audio response: ${data.text}`);
-              
-              // Play audio
-              if (audioQueueRef.current && !isMuted) {
-                audioQueueRef.current.addToQueue(data.audio);
-              }
-              
-              // Auto-stop speaking after a reasonable time
-              setTimeout(() => setIsSpeaking(false), Math.max(2000, data.text.length * 50));
-              break;
-              
-            case 'interrupted':
-              console.log('🛑 Session interrupted');
-              setIsSpeaking(false);
-              addDebugInfo('Session interrupted by user');
-              break;
-              
-            case 'error':
-              console.error('🔥 Server error:', data.message);
-              addDebugInfo(`Server error: ${data.message}`);
-              toast({
-                title: "Voice Error",
-                description: data.message,
-                variant: "destructive",
-              });
-              break;
-              
-            default:
-              console.log('Unknown message type:', data.type);
-              addDebugInfo(`Unknown message type: ${data.type}`);
-          }
-        } catch (error) {
-          console.error('🔥 Error parsing message:', error);
-          addDebugInfo(`Error parsing message: ${error.message}`);
-        }
-      };
-
-      wsRef.current.onclose = (event) => {
-        console.log('🔥 WEBSOCKET CLOSED:', event.code, event.reason);
-        clearTimeout(connectionTimeout);
-        addDebugInfo(`WebSocket closed: ${event.code} - ${event.reason}`);
-        cleanup();
-      };
-
-      wsRef.current.onerror = (error) => {
-        console.error('🔥 WEBSOCKET ERROR:', error);
-        clearTimeout(connectionTimeout);
-        setConnectionStatus('error');
-        addDebugInfo(`WebSocket error: ${error}`);
-        cleanup();
-        toast({
-          title: "Connection Error",
-          description: "Failed to establish voice connection",
-          variant: "destructive",
-        });
-      };
+      toast({
+        title: "Connected",
+        description: `Voice chat started with ${session.botConfig.name}`,
+      });
 
     } catch (error) {
-      console.error('🔥 ERROR STARTING VOICE SESSION:', error);
+      console.error('❌ Failed to start voice session:', error);
       setConnectionStatus('error');
       cleanup();
-      addDebugInfo(`Failed to start session: ${error.message}`);
+      addDebugInfo(`Failed to start session: ${error instanceof Error ? error.message : 'Unknown error'}`);
       toast({
-        title: "Error",
+        title: "Connection Error",
         description: error instanceof Error ? error.message : "Failed to start voice session",
         variant: "destructive",
       });
     }
-  }, [isConnected, toast, activeBot, onAddMessage, addDebugInfo, isMuted, vadStatus]);
+  }, [isConnected, toast, activeBot, onAddMessage, addDebugInfo, isMuted]);
 
   const stopVoiceSession = useCallback(async () => {
-    console.log('🎤 Stopping voice session...');
-    voiceDebugger.log('info', 'Stopping voice session');
+    console.log('🔌 Stopping LiveKit voice session...');
     addDebugInfo('Stopping voice session...');
 
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'stop_session' }));
-      wsRef.current.close();
-      wsRef.current = null;
+    if (voiceManagerRef.current) {
+      await voiceManagerRef.current.disconnect();
     }
 
     cleanup();
@@ -355,11 +193,9 @@ export function RealtimeVoiceChat({
   }, [isConnected, startVoiceSession, stopVoiceSession]);
 
   const handleInterrupt = useCallback(() => {
-    if (voiceManagerRef.current) {
-      voiceManagerRef.current.interrupt();
-    }
     if (audioQueueRef.current) {
       audioQueueRef.current.stop();
+      setIsSpeaking(false);
     }
     addDebugInfo('Manual interrupt triggered');
   }, [addDebugInfo]);
@@ -379,7 +215,7 @@ export function RealtimeVoiceChat({
     if (!textInput.trim()) return;
 
     // Add user message immediately
-    const userMessage = onAddMessage({
+    onAddMessage({
       content: textInput,
       type: 'user'
     });
@@ -388,19 +224,47 @@ export function RealtimeVoiceChat({
     setTextInput('');
     addDebugInfo(`Text message sent: "${messageText}"`);
 
-    // Send to voice server if connected
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      const textMessage = {
-        type: 'text_message',
-        text: messageText
-      };
-      
-      console.log('🔥 SENDING TEXT MESSAGE:', textMessage);
-      wsRef.current.send(JSON.stringify(textMessage));
+    // Process text through voice manager if connected
+    if (voiceManagerRef.current && isConnected) {
+      // Simulate sending text to voice processor
+      try {
+        const { data, error } = await supabase.functions.invoke('voice-processor', {
+          body: {
+            type: 'generate_response',
+            data: { transcript: messageText },
+            botConfig: voiceSessionRef.current?.botConfig
+          }
+        });
+
+        if (data?.success) {
+          // Add AI response
+          onAddMessage({
+            content: data.response,
+            type: 'bot'
+          });
+          
+          // Generate and play speech
+          const ttsResponse = await supabase.functions.invoke('voice-processor', {
+            body: {
+              type: 'text_to_speech',
+              data: { text: data.response },
+              botConfig: voiceSessionRef.current?.botConfig
+            }
+          });
+
+          if (ttsResponse.data?.success && audioQueueRef.current && !isMuted) {
+            audioQueueRef.current.addToQueue(ttsResponse.data.audio);
+            setIsSpeaking(true);
+            setTimeout(() => setIsSpeaking(false), 3000);
+          }
+        }
+      } catch (error) {
+        console.error('Text processing error:', error);
+      }
     } else {
       addDebugInfo('Not connected to voice server - message sent to chat only');
     }
-  }, [textInput, onAddMessage, addDebugInfo]);
+  }, [textInput, onAddMessage, addDebugInfo, isConnected, isMuted]);
 
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -413,10 +277,6 @@ export function RealtimeVoiceChat({
   useEffect(() => {
     return () => {
       cleanup();
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
     };
   }, [cleanup]);
 
@@ -436,10 +296,15 @@ export function RealtimeVoiceChat({
                connectionStatus === 'error' ? '🔴 Error' : '⚫ Disconnected'}
             </Badge>
             
-            {vadStatus !== 'idle' && (
+            {isListening && (
               <Badge variant="outline" className="mb-2 ml-2">
-                {vadStatus === 'listening' ? '👂 Listening' : 
-                 vadStatus === 'speaking' ? '🗣️ Speaking' : ''}
+                👂 Listening
+              </Badge>
+            )}
+            
+            {isSpeaking && (
+              <Badge variant="outline" className="mb-2 ml-2">
+                🔊 Speaking
               </Badge>
             )}
           </div>
@@ -542,8 +407,7 @@ export function RealtimeVoiceChat({
               
               <div className="text-center space-y-2">
                 <p className="text-sm text-muted-foreground">
-                  {vadStatus === 'speaking' ? "🗣️ Speaking detected..." : 
-                   vadStatus === 'listening' ? "👂 Listening for speech..." : 
+                  {isListening && !isSpeaking ? "👂 Listening for speech..." : 
                    isSpeaking ? "🔊 AI Speaking..." : 
                    "💬 Ready to chat"}
                 </p>

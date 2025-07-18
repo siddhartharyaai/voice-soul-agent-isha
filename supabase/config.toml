@@ -6,6 +6,9 @@ verify_jwt = false
 [functions.realtime-voice]
 verify_jwt = false
 
+[functions.voice-processor]
+verify_jwt = false
+
 [functions.speech-to-text]
 verify_jwt = false
 
