@@ -17,7 +17,6 @@ import {
   useDataChannel,
 } from '@livekit/components-react';
 import { ConnectionState } from 'livekit-client';
-import '@livekit/components-styles';
 
 interface LiveKitVoiceChatProps {
   botName: string;
