@@ -145,8 +145,10 @@ export function RealtimeVoiceChat({
         throw new Error('No valid session token');
       }
 
-      // Connect to realtime voice function
-      const wsUrl = `wss://nlxpyaeufqabcyimlohn.supabase.co/functions/v1/realtime-voice`;
+      // Connect to realtime voice function - use project URL
+      const projectUrl = new URL(import.meta.env.VITE_SUPABASE_URL || 'https://nlxpyaeufqabcyimlohn.supabase.co');
+      const projectRef = projectUrl.hostname.split('.')[0];
+      const wsUrl = `wss://${projectRef}.supabase.co/functions/v1/realtime-voice`;
       
       console.log('🔥 CONNECTING TO REALTIME VOICE:', wsUrl);
       voiceDebugger.log('info', 'Connecting to realtime voice', { url: wsUrl });
@@ -179,11 +181,12 @@ export function RealtimeVoiceChat({
         setVadStatus('listening');
         addDebugInfo('WebSocket connected successfully');
         
-        // Start voice session
+        // Start voice session with auth token
         wsRef.current!.send(JSON.stringify({
           type: 'start_session',
           botId: activeBot.id,
-          userId: user.id
+          userId: user.id,
+          accessToken: session.access_token
         }));
 
         // Start VAD
@@ -206,6 +209,16 @@ export function RealtimeVoiceChat({
               console.log('✅ Connection ready');
               addDebugInfo('Connection ready');
               break;
+
+            case 'stt_ready':
+              console.log('✅ STT ready');
+              addDebugInfo('Speech-to-text ready');
+              break;
+
+            case 'user_message':
+              console.log('📝 User message processed:', data.content);
+              addDebugInfo(`User message processed: "${data.content}"`);
+              break;
               
             case 'session_started':
               console.log('✅ Session started:', data.sessionId);
@@ -227,16 +240,21 @@ export function RealtimeVoiceChat({
               }
               break;
               
+            case 'ai_response':
+              console.log('🤖 Received AI text response');
+              addDebugInfo(`AI response: ${data.content}`);
+              
+              // Add AI message to chat
+              onAddMessage({
+                content: data.content,
+                type: 'bot'
+              });
+              break;
+
             case 'audio_response':
               console.log('🔊 Received audio response');
               setIsSpeaking(true);
               addDebugInfo(`Received audio response: ${data.text}`);
-              
-              // Add AI message
-              onAddMessage({
-                content: data.text,
-                type: 'bot'
-              });
               
               // Play audio
               if (audioQueueRef.current && !isMuted) {

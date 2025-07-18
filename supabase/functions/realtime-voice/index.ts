@@ -90,6 +90,17 @@ serve(async (req) => {
         case 'audio_chunk':
           await handleAudioChunk(data)
           break
+        case 'interrupt':
+          console.log('Received interrupt signal')
+          // Handle interruption - stop current TTS playback
+          socket.send(JSON.stringify({
+            type: 'interrupted',
+            timestamp: new Date().toISOString()
+          }))
+          break
+        case 'text_message':
+          await processUserMessage(data.text)
+          break
         case 'stop_session':
           await handleStopSession()
           break
@@ -117,7 +128,24 @@ serve(async (req) => {
   }
 
   async function handleStartSession(data: any) {
-    const { botId, userId } = data
+    const { botId, userId, accessToken } = data
+    
+    console.log('Starting session for bot:', botId, 'user:', userId)
+    
+    // Validate auth token if provided
+    if (accessToken) {
+      try {
+        const { data: authData, error: authError } = await supabase.auth.getUser(accessToken)
+        if (authError || !authData.user) {
+          console.error('Auth validation failed:', authError)
+          socket.send(JSON.stringify({ type: 'auth_error', message: 'Invalid session' }))
+          return
+        }
+        console.log('User authenticated:', authData.user.id)
+      } catch (error) {
+        console.error('Auth check error:', error)
+      }
+    }
     console.log('Starting session for bot:', botId, 'user:', userId)
     
     try {
@@ -192,10 +220,10 @@ serve(async (req) => {
           if (transcript.trim()) {
             // Send real-time transcript for live display
             socket.send(JSON.stringify({
-              type: 'transcript_update',
-              text: transcript,
+              type: 'transcript',
+              transcript: transcript,
               confidence: confidence,
-              isFinal: isFinal,
+              is_final: isFinal,
               timestamp: new Date().toISOString()
             }))
 
@@ -380,6 +408,7 @@ serve(async (req) => {
       socket.send(JSON.stringify({
         type: 'audio_response',
         audio: base64Audio,
+        text: text,
         format: 'mp3',
         timestamp: new Date().toISOString()
       }))
